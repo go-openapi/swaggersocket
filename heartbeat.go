@@ -40,6 +40,7 @@ func (hb *heartbeat) start() {
 			select {
 			case <-ticker.C:
 				// write a websocket ping control message. WriteControl is safe to use concurrently
+				log.Println("sending ping message")
 				if err := hb.conn.WriteControl(websocket.PingMessage, hb.pingMsg, time.Now().Add(hb.pingWriteWait)); err != nil {
 					log.Println("ping message: ", err)
 				}

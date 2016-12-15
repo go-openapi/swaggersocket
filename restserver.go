@@ -3,7 +3,6 @@ package restwebsocket
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 )
@@ -62,7 +61,6 @@ func (rw *restResponseWriter) WriteHeader(code int) {
 
 func (rw *restResponseWriter) Write(b []byte) (int, error) {
 	i, err := rw.Buf.Write(b)
-	fmt.Printf("buf: %v", rw.Buf)
 	return i, err
 }
 
@@ -74,6 +72,8 @@ func (rw *restResponseWriter) close() []byte {
 	}
 	// Do the actual writing here
 	b, _ := json.Marshal(resp)
+	responseBody := string(resp.Body)
+	log.Println("resp body: ", responseBody)
 	return b
 
 }

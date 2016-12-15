@@ -2,16 +2,16 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"restwebsocket"
+	"time"
 )
 
 func main() {
-	wsClient := restwebsocket.NewWebSocketClient(false, nil, nil, nil)
+	wsClient := restwebsocket.NewWebSocketClient(true, nil, nil, []byte("ping"))
 	u := &url.URL{
 		Host:   "localhost:9090",
 		Scheme: "ws",
@@ -29,9 +29,13 @@ func main() {
 		URL:  reqPath,
 		Body: ioutil.NopCloser(bytes.NewBuffer(nil)),
 	}
-	wsClient.Connection().WriteRequest(req)
-	resp := wsClient.Connection().ReadResponse()
-	fmt.Printf("%v", resp.Body)
+	for i := 0; i < 5; i++ {
+		wsClient.Connection().WriteRequest(req)
+		resp := wsClient.Connection().ReadResponse()
+		buf, _ := ioutil.ReadAll(resp.Body)
+		log.Println("response: ", string(buf))
+		time.Sleep(time.Second * 90)
+	}
 
 	<-done
 }
