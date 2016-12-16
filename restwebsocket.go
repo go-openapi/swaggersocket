@@ -15,25 +15,29 @@ const (
 	websocketMaxConnections = 100
 )
 
-// FailureCallbackFunc is a function that is called on a connection failure
-type FailureCallbackFunc func(interface{}) interface{}
-
-// Default FailureCallBack should implement a reconnection with exponential backoff
-
 //////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////// interfaces ///////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////
 
+// ConnectionType is the socket connection type, it can either be a serverside connection or a clientside connection
+type ConnectionType int
+
+const (
+	// ServerSide means this connection is owned by a websocket-server
+	ServerSide ConnectionType = iota
+	// ClientSide means this connection is owned by a websocket-client
+	ClientSide
+)
+
 // SocketConnection is a websocket a wrapper around the websocket connection
 type SocketConnection interface {
 	Close() error
-	OnConnectionFailure(FailureCallbackFunc)
 	// return the connection id
 	ID() string
-	WriteRequest(req *http.Request)
+	WriteRequest(req *http.Request) error
 	WriteRaw([]byte) error
-	ReadResponse() *http.Response
-	ReadRequest() *http.Request
+	ReadResponse() (*http.Response, error)
+	ReadRequest() (*http.Request, error)
 	HeartBeat() *heartbeat
 }
 
@@ -83,13 +87,15 @@ type restResponse struct {
 
 // reliableRestSocket is the implementation
 type reliableSocketConnection struct {
-	conn            *websocket.Conn
-	id              string
-	failureCallBack FailureCallbackFunc
-	heartBeat       *heartbeat
+	socketserver *websocketServer
+	socketclient *websocketClient
+	connType     ConnectionType
+	conn         *websocket.Conn
+	id           string
+	heartBeat    *heartbeat
 }
 
-func newReliableSocketConnection(c *websocket.Conn, id string, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) SocketConnection {
+func newReliableSocketConnection(c *websocket.Conn, id string, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *reliableSocketConnection {
 	// Default ping handler is to send back a pong control message with the same application data
 	// Default pong handler is to do nothing
 	// websocket protocol mentions that the pong message should reply back with the exact appData recieved from the ping message
@@ -111,20 +117,44 @@ func newReliableSocketConnection(c *websocket.Conn, id string, keepAlive bool, p
 	}
 }
 
+func (c *reliableSocketConnection) setType(t ConnectionType) {
+	c.connType = t
+}
+
+func (c *reliableSocketConnection) setSocketServer(s *websocketServer) {
+	c.socketserver = s
+}
+
+func (c *reliableSocketConnection) setSocketClient(s *websocketClient) {
+	c.socketclient = s
+}
+
+func (c *reliableSocketConnection) SocketServer() RestSocketServer {
+	return c.socketserver
+}
+
+func (c *reliableSocketConnection) SocketClient() RestSocketClient {
+	return c.socketclient
+}
+
+func (c *reliableSocketConnection) Type() ConnectionType {
+	return c.connType
+}
+
 func (c *reliableSocketConnection) HeartBeat() *heartbeat {
 	return c.heartBeat
 }
 
-func (c *reliableSocketConnection) ReadRequest() *http.Request {
+func (c *reliableSocketConnection) ReadRequest() (*http.Request, error) {
 	mt, message, err := c.conn.ReadMessage()
 
 	if err != nil {
 		log.Println("read:", err)
-		return nil
+		return nil, err
 	}
 
 	if mt != websocket.TextMessage {
-		return nil
+		return nil, nil
 	}
 
 	req := new(restRequest)
@@ -134,15 +164,22 @@ func (c *reliableSocketConnection) ReadRequest() *http.Request {
 
 	r, err := http.NewRequest(req.Method, req.Path, bytes.NewBuffer(req.Body))
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	// setup headers
 	r.Header = req.Headers
-	return r
+	return r, nil
 }
 
-func (c *reliableSocketConnection) OnConnectionFailure(f FailureCallbackFunc) {
-	c.failureCallBack = f
+func (c *reliableSocketConnection) handleFailure() {
+	log.Println("connection failure detected")
+	c.heartBeat.stop()
+	if c.connType == ServerSide {
+		log.Printf("removing connection with id %s from connection list\n", c.id)
+		c.socketserver.removeConnection(c.id)
+	} else {
+		// ToDo try to recoonect
+	}
 }
 
 // Close provides a graceful termination of the connection
@@ -158,9 +195,13 @@ func (c *reliableSocketConnection) ID() string {
 }
 
 // WriteRequest writes a request to the underlying connection
-func (c *reliableSocketConnection) WriteRequest(req *http.Request) {
+func (c *reliableSocketConnection) WriteRequest(req *http.Request) error {
 	// donot ignore the error
-	bdy, _ := ioutil.ReadAll(req.Body)
+	bdy, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		log.Println("read request: ", err)
+		return err
+	}
 	restReq := &restRequest{
 		ID:      "whatever", //this should be a uuid
 		Headers: req.Header,
@@ -171,34 +212,38 @@ func (c *reliableSocketConnection) WriteRequest(req *http.Request) {
 	b, err := json.Marshal(restReq)
 	if err != nil {
 		log.Println("marshal request: ", err)
+		return err
 	}
 	if err := c.conn.WriteMessage(websocket.TextMessage, b); err != nil {
 		log.Println("cannot write request")
+		return err
 	}
+	return nil
 }
 
-func (c *reliableSocketConnection) ReadResponse() *http.Response {
+func (c *reliableSocketConnection) ReadResponse() (*http.Response, error) {
 	mt, message, err := c.conn.ReadMessage()
 
 	if err != nil {
 		log.Println("read:", err)
-		return nil
+		return nil, err
 	}
 
 	if mt != websocket.TextMessage {
-		return nil
+		return nil, nil
 	}
 
 	resp := new(restResponse)
 	if err := json.Unmarshal(message, &resp); err != nil {
 		log.Println("unmarshal response:", err)
+		return nil, err
 	}
 
 	return &http.Response{
 		StatusCode: resp.Status,
 		Header:     resp.HeaderMap,
 		Body:       ioutil.NopCloser(bytes.NewBuffer(resp.Body)),
-	}
+	}, nil
 }
 
 func (c *reliableSocketConnection) WriteRaw(b []byte) error {

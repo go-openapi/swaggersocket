@@ -14,7 +14,7 @@ type websocketServer struct {
 	addr               string
 	activeConnections  int
 	maxConnections     int
-	connectionMap      map[string]SocketConnection
+	connectionMap      map[string]*reliableSocketConnection
 	keepAlive          bool
 	pingHdlr, pongHdlr func(string) error
 	appData            []byte
@@ -35,7 +35,7 @@ func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pong
 		pingHdlr:          pingHdlr,
 		pongHdlr:          pongHdlr,
 		appData:           appData,
-		connectionMap:     make(map[string]SocketConnection),
+		connectionMap:     make(map[string]*reliableSocketConnection),
 	}
 }
 
@@ -57,6 +57,8 @@ func (ss *websocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	// ToDo Handshake to get connection id
 
 	conn := newReliableSocketConnection(c, "dummyID", ss.keepAlive, ss.pingHdlr, ss.pongHdlr, ss.appData)
+	conn.setType(ServerSide)
+	conn.setSocketServer(ss)
 	ss.connectionMap["dummyID"] = conn
 	// BookKeeping stuff
 	ss.activeConnections++
@@ -72,4 +74,12 @@ func (ss *websocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 
 func (ss *websocketServer) Connection(id string) SocketConnection {
 	return ss.connectionMap[id]
+}
+
+func (ss *websocketServer) removeConnection(id string) {
+	delete(ss.connectionMap, id)
+}
+
+func (ss *websocketServer) addConnection(id string, c *reliableSocketConnection) {
+	ss.connectionMap[id] = c
 }

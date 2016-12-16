@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/websocket"
 )
 
 // reliableRestServer is the implementation of the RestServer interface
 type reliableRestServer struct {
-	SocketConnection
+	*reliableSocketConnection
 	rw   *restResponseWriter
 	hdlr http.Handler
 }
@@ -17,9 +19,9 @@ type reliableRestServer struct {
 // NewRestServer creates a new rest api server
 func NewRestServer(conn SocketConnection, handler http.Handler) RestServer {
 	return &reliableRestServer{
-		SocketConnection: conn,
-		rw:               newRestResponseWriter(),
-		hdlr:             handler,
+		reliableSocketConnection: conn.(*reliableSocketConnection),
+		rw:   newRestResponseWriter(),
+		hdlr: handler,
 	}
 }
 
@@ -29,7 +31,19 @@ func (s *reliableRestServer) SocketResponseWriter() http.ResponseWriter {
 
 func (s *reliableRestServer) Serve() error {
 	for {
-		req := s.ReadRequest()
+		req, err := s.ReadRequest()
+
+		if err != nil {
+			// abnormal closure, unexpected EOF, for example the client disappears
+			if websocket.IsCloseError(err, 1006) {
+				s.handleFailure()
+				return nil
+			}
+		}
+
+		if err != nil {
+
+		}
 
 		if req == nil {
 			log.Println("not a text message")
@@ -72,8 +86,6 @@ func (rw *restResponseWriter) close() []byte {
 	}
 	// Do the actual writing here
 	b, _ := json.Marshal(resp)
-	responseBody := string(resp.Body)
-	log.Println("resp body: ", responseBody)
 	return b
 
 }

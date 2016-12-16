@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	wsClient := restwebsocket.NewWebSocketClient(true, nil, nil, []byte("ping"))
+	wsClient := restwebsocket.NewWebSocketClient(false, nil, nil, nil)
 	u := &url.URL{
 		Host:   "localhost:9090",
 		Scheme: "ws",
@@ -23,7 +23,7 @@ func main() {
 	done := make(chan struct{})
 
 	reqPath := &url.URL{
-		Path: "/karim",
+		Path: "/",
 	}
 	req := &http.Request{
 		URL:  reqPath,
@@ -31,7 +31,7 @@ func main() {
 	}
 	for i := 0; i < 5; i++ {
 		wsClient.Connection().WriteRequest(req)
-		resp := wsClient.Connection().ReadResponse()
+		resp, _ := wsClient.Connection().ReadResponse()
 		buf, _ := ioutil.ReadAll(resp.Body)
 		log.Println("response: ", string(buf))
 		time.Sleep(time.Second * 90)

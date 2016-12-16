@@ -39,10 +39,13 @@ func (sc *websocketClient) Connect(u *url.URL) error {
 
 	//////
 
-	sc.conn = newReliableSocketConnection(conn, "dummyConnectionId", sc.keepAlive, sc.pingHdlr, sc.pongHdlr, sc.appData)
+	c := newReliableSocketConnection(conn, "dummyConnectionId", sc.keepAlive, sc.pingHdlr, sc.pongHdlr, sc.appData)
+	c.setSocketClient(sc)
+	c.setType(ClientSide)
+	sc.conn = c
 	// start the heartbeat protocol
-	if sc.conn.HeartBeat() != nil {
-		sc.conn.HeartBeat().start()
+	if c.HeartBeat() != nil {
+		c.HeartBeat().start()
 	}
 	return nil
 }
