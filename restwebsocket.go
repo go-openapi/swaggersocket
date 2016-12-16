@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 
 	"github.com/gorilla/websocket"
 )
@@ -43,7 +42,7 @@ type SocketConnection interface {
 
 // RestSocketClient is the websocket client that initiates the connection
 type RestSocketClient interface {
-	Connect(u *url.URL) error
+	Connect() error
 	Connection() SocketConnection
 }
 
@@ -178,7 +177,7 @@ func (c *reliableSocketConnection) handleFailure() {
 		log.Printf("removing connection with id %s from connection list\n", c.id)
 		c.socketserver.removeConnection(c.id)
 	} else {
-		// ToDo try to recoonect
+
 	}
 }
 
