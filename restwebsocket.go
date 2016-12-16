@@ -56,7 +56,6 @@ type RestSocketServer interface {
 // RestServer is a websocket connection that is a RESTAPI server
 type RestServer interface {
 	SocketConnection
-	SocketResponseWriter() http.ResponseWriter
 	Serve() error
 }
 

@@ -41,6 +41,7 @@ func main() {
 		}
 		buf, _ := ioutil.ReadAll(resp.Body)
 		log.Println("response: ", string(buf))
+		resp.Body.Close()
 		time.Sleep(time.Second * 2)
 	}
 

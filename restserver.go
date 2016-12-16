@@ -10,7 +10,6 @@ import (
 // reliableRestServer is the implementation of the RestServer interface
 type reliableRestServer struct {
 	*reliableSocketConnection
-	rw   *restResponseWriter
 	hdlr http.Handler
 }
 
@@ -18,13 +17,8 @@ type reliableRestServer struct {
 func NewRestServer(conn SocketConnection, handler http.Handler) RestServer {
 	return &reliableRestServer{
 		reliableSocketConnection: conn.(*reliableSocketConnection),
-		rw:   newRestResponseWriter(),
 		hdlr: handler,
 	}
-}
-
-func (s *reliableRestServer) SocketResponseWriter() http.ResponseWriter {
-	return s.rw
 }
 
 func (s *reliableRestServer) Serve() error {
@@ -39,7 +33,7 @@ func (s *reliableRestServer) Serve() error {
 			log.Println("not a text message")
 		}
 
-		rw := s.rw
+		rw := newRestResponseWriter()
 		s.hdlr.ServeHTTP(rw, req)
 		response := rw.close()
 		if err := s.WriteRaw(response); err != nil {
@@ -74,6 +68,7 @@ func (rw *restResponseWriter) close() []byte {
 		Body:      rw.Buf.Bytes(),
 		HeaderMap: rw.HeaderMap,
 	}
+
 	// Do the actual writing here
 	b, _ := json.Marshal(resp)
 	return b
