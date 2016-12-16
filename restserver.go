@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-
-	"github.com/gorilla/websocket"
 )
 
 // reliableRestServer is the implementation of the RestServer interface
@@ -34,15 +32,7 @@ func (s *reliableRestServer) Serve() error {
 		req, err := s.ReadRequest()
 
 		if err != nil {
-			// abnormal closure, unexpected EOF, for example the client disappears
-			if websocket.IsCloseError(err, 1006) {
-				s.handleFailure()
-				return nil
-			}
-		}
-
-		if err != nil {
-
+			return err
 		}
 
 		if req == nil {

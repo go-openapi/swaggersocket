@@ -11,12 +11,13 @@ import (
 )
 
 func main() {
-	wsClient := restwebsocket.NewWebSocketClient(false, nil, nil, nil)
+
 	u := &url.URL{
 		Host:   "localhost:9090",
 		Scheme: "ws",
 	}
-	if err := wsClient.Connect(u); err != nil {
+	wsClient := restwebsocket.NewWebSocketClient(u, false, nil, nil, nil)
+	if err := wsClient.Connect(); err != nil {
 		log.Println("connect: ", err)
 	}
 
@@ -29,12 +30,18 @@ func main() {
 		URL:  reqPath,
 		Body: ioutil.NopCloser(bytes.NewBuffer(nil)),
 	}
-	for i := 0; i < 5; i++ {
-		wsClient.Connection().WriteRequest(req)
-		resp, _ := wsClient.Connection().ReadResponse()
+	for {
+		err := wsClient.Connection().WriteRequest(req)
+		if err != nil {
+			continue
+		}
+		resp, err := wsClient.Connection().ReadResponse()
+		if err != nil {
+			continue
+		}
 		buf, _ := ioutil.ReadAll(resp.Body)
 		log.Println("response: ", string(buf))
-		time.Sleep(time.Second * 90)
+		time.Sleep(time.Second * 2)
 	}
 
 	<-done

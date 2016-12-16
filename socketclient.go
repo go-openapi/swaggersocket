@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/url"
 
+	"github.com/cenkalti/backoff"
 	"github.com/gorilla/websocket"
 )
 
@@ -53,11 +54,13 @@ func (sc *websocketClient) Connect() error {
 		return nil
 	}
 
-	err := Retry(operation, NewExponentialBackOff())
+	err := backoff.Retry(operation, backoff.NewExponentialBackOff())
 	if err != nil {
 		log.Println("cannot initiate connection")
 		return err
 	}
+
+	return nil
 }
 
 func (sc *websocketClient) Connection() SocketConnection {

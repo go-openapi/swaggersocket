@@ -149,6 +149,10 @@ func (c *reliableSocketConnection) ReadRequest() (*http.Request, error) {
 
 	if err != nil {
 		log.Println("read:", err)
+		// abnormal closure, unexpected EOF, for example the client disappears
+		if websocket.IsCloseError(err, 1006) {
+			c.handleFailure()
+		}
 		return nil, err
 	}
 
@@ -172,12 +176,15 @@ func (c *reliableSocketConnection) ReadRequest() (*http.Request, error) {
 
 func (c *reliableSocketConnection) handleFailure() {
 	log.Println("connection failure detected")
-	c.heartBeat.stop()
+	if c.heartBeat != nil {
+		c.heartBeat.stop()
+	}
 	if c.connType == ServerSide {
 		log.Printf("removing connection with id %s from connection list\n", c.id)
 		c.socketserver.removeConnection(c.id)
 	} else {
-
+		// try to reconnect
+		c.socketclient.Connect()
 	}
 }
 
@@ -215,6 +222,9 @@ func (c *reliableSocketConnection) WriteRequest(req *http.Request) error {
 	}
 	if err := c.conn.WriteMessage(websocket.TextMessage, b); err != nil {
 		log.Println("cannot write request")
+		if websocket.IsCloseError(err, 1006) {
+			c.handleFailure()
+		}
 		return err
 	}
 	return nil
@@ -225,6 +235,9 @@ func (c *reliableSocketConnection) ReadResponse() (*http.Response, error) {
 
 	if err != nil {
 		log.Println("read:", err)
+		if websocket.IsCloseError(err, 1006) {
+			c.handleFailure()
+		}
 		return nil, err
 	}
 
@@ -246,5 +259,9 @@ func (c *reliableSocketConnection) ReadResponse() (*http.Response, error) {
 }
 
 func (c *reliableSocketConnection) WriteRaw(b []byte) error {
-	return c.conn.WriteMessage(websocket.TextMessage, b)
+	err := c.conn.WriteMessage(websocket.TextMessage, b)
+	if websocket.IsCloseError(err, 1006) {
+		c.handleFailure()
+	}
+	return err
 }
