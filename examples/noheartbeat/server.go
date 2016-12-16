@@ -13,7 +13,7 @@ func handler(rw http.ResponseWriter, req *http.Request) {
 	rw.Write([]byte("Hello, Dolores!"))
 }
 func main() {
-	wsServer := restwebsocket.NewWebSocketServer(":9090", 100, true, nil, nil, nil)
+	wsServer := restwebsocket.NewWebSocketServer(":9090", 100, false, nil, nil, nil)
 
 	ch, err := wsServer.Accept()
 	if err != nil {
