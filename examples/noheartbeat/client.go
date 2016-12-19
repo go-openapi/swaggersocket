@@ -21,8 +21,6 @@ func main() {
 		log.Println("connect: ", err)
 	}
 
-	done := make(chan struct{})
-
 	reqPath := &url.URL{
 		Path: "/",
 	}
@@ -30,9 +28,10 @@ func main() {
 		URL:  reqPath,
 		Body: ioutil.NopCloser(bytes.NewBuffer(nil)),
 	}
-	for {
+	for i := 0; i < 4; i++ {
 		err := wsClient.Connection().WriteRequest(req)
 		if err != nil {
+			log.Println("err: ", err)
 			continue
 		}
 		resp, err := wsClient.Connection().ReadResponse()
@@ -44,6 +43,4 @@ func main() {
 		resp.Body.Close()
 		time.Sleep(time.Second * 2)
 	}
-
-	<-done
 }

@@ -2,8 +2,7 @@ package restwebsocket
 
 import (
 	"bytes"
-	"encoding/json"
-	"log"
+	"io/ioutil"
 	"net/http"
 )
 
@@ -24,61 +23,43 @@ func NewRestServer(conn SocketConnection, handler http.Handler) RestServer {
 func (s *reliableRestServer) Serve() error {
 	for {
 		req, err := s.ReadRequest()
-
 		if err != nil {
 			return err
 		}
 
-		if req == nil {
-			log.Println("not a text message")
-		}
-
-		rw := newRestResponseWriter()
+		rw := newsocketResponseWriter(s.reliableSocketConnection)
 		s.hdlr.ServeHTTP(rw, req)
-		response := rw.close()
-		if err := s.WriteRaw(response); err != nil {
-			log.Println("write message:", err)
-		}
+		//response := rw.close()
+		//if err := s.WriteRaw(response); err != nil {
+		//	log.Println("write message:", err)
+		//}
 	}
 }
 
-type restResponseWriter struct {
-	Status    int
-	Buf       *bytes.Buffer
-	HeaderMap http.Header
+type socketResponseWriter struct {
+	r    *http.Response
+	conn *reliableSocketConnection
 }
 
-func (rw *restResponseWriter) Header() http.Header {
-	return rw.HeaderMap
+func (rw *socketResponseWriter) Header() http.Header {
+	return rw.r.Header
 }
 
-func (rw *restResponseWriter) WriteHeader(code int) {
-	rw.Status = code
-	// TODO: you should also write the headers here
+func (rw *socketResponseWriter) WriteHeader(code int) {
+	rw.r.StatusCode = code
 }
 
-func (rw *restResponseWriter) Write(b []byte) (int, error) {
-	i, err := rw.Buf.Write(b)
-	return i, err
-}
-
-func (rw *restResponseWriter) close() []byte {
-	resp := &restResponse{
-		Status:    rw.Status,
-		Body:      rw.Buf.Bytes(),
-		HeaderMap: rw.HeaderMap,
+func (rw *socketResponseWriter) Write(b []byte) (int, error) {
+	rw.r.Body = ioutil.NopCloser(bytes.NewReader(b))
+	if err := rw.conn.WriteResponse(rw.r); err != nil {
+		return -1, err
 	}
-
-	// Do the actual writing here
-	b, _ := json.Marshal(resp)
-	return b
-
+	return len(b), nil
 }
 
-func newRestResponseWriter() *restResponseWriter {
-	var b []byte
-	return &restResponseWriter{
-		Buf:       bytes.NewBuffer(b),
-		HeaderMap: make(http.Header),
+func newsocketResponseWriter(c *reliableSocketConnection) *socketResponseWriter {
+	return &socketResponseWriter{
+		r:    new(http.Response),
+		conn: c,
 	}
 }

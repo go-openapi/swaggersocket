@@ -1,17 +1,14 @@
 package restwebsocket
 
 import (
-	"bytes"
-	"encoding/json"
-	"io/ioutil"
+	"bufio"
+	"errors"
+	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
-)
-
-const (
-	websocketMaxConnections = 100
 )
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -26,6 +23,20 @@ const (
 	ServerSide ConnectionType = iota
 	// ClientSide means this connection is owned by a websocket-client
 	ClientSide
+)
+
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 20 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+
+	// Maximum message size allowed from peer.
+	maxMessageSize = 512
 )
 
 // SocketConnection is a websocket a wrapper around the websocket connection
@@ -57,30 +68,6 @@ type RestSocketServer interface {
 type RestServer interface {
 	SocketConnection
 	Serve() error
-}
-
-//////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////// structs //////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////
-
-// restRequest and restResponse are used internally to marshal/unmarshal websocket json messages
-
-// restRequest is the struct representing the websocket rest request message
-type restRequest struct {
-	// ID should be a unique id for this request. This is how we determine a response related to this particular request
-	ID      string
-	Headers http.Header
-	Method  string
-	// Path includes the query strings
-	Path string
-	Body []byte
-}
-
-// restResponse is the struct representing the websocket rest response message
-type restResponse struct {
-	Status    int
-	Body      []byte
-	HeaderMap http.Header
 }
 
 // reliableRestSocket is the implementation
@@ -143,36 +130,6 @@ func (c *reliableSocketConnection) HeartBeat() *heartbeat {
 	return c.heartBeat
 }
 
-func (c *reliableSocketConnection) ReadRequest() (*http.Request, error) {
-	mt, message, err := c.conn.ReadMessage()
-
-	if err != nil {
-		log.Println("read:", err)
-		// abnormal closure, unexpected EOF, for example the client disappears
-		if websocket.IsCloseError(err, 1006) {
-			c.handleFailure()
-		}
-		return nil, err
-	}
-
-	if mt != websocket.TextMessage {
-		return nil, nil
-	}
-
-	req := new(restRequest)
-	if err := json.Unmarshal(message, &req); err != nil {
-		log.Println("unmarshal request:", err)
-	}
-
-	r, err := http.NewRequest(req.Method, req.Path, bytes.NewBuffer(req.Body))
-	if err != nil {
-		return nil, err
-	}
-	// setup headers
-	r.Header = req.Headers
-	return r, nil
-}
-
 func (c *reliableSocketConnection) handleFailure() {
 	log.Println("connection failure detected")
 	if c.heartBeat != nil {
@@ -180,9 +137,10 @@ func (c *reliableSocketConnection) handleFailure() {
 	}
 	if c.connType == ServerSide {
 		log.Printf("removing connection with id %s from connection list\n", c.id)
-		c.socketserver.removeConnection(c.id)
+		// remove this connection from the server connectionMap
+		c.socketserver.unregister <- c
 	} else {
-		// try to reconnect
+		// try to reconnect with exponential backoff
 		c.socketclient.Connect()
 	}
 }
@@ -201,66 +159,92 @@ func (c *reliableSocketConnection) ID() string {
 
 // WriteRequest writes a request to the underlying connection
 func (c *reliableSocketConnection) WriteRequest(req *http.Request) error {
-	// donot ignore the error
-	bdy, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		log.Println("read request: ", err)
-		return err
+	var err error
+	var w io.WriteCloser
+	if w, err = c.conn.NextWriter(websocket.TextMessage); err == nil {
+		defer w.Close()
+		if err = req.Write(w); err == nil {
+			return nil
+		}
 	}
-	restReq := &restRequest{
-		ID:      "whatever", //this should be a uuid
-		Headers: req.Header,
-		Method:  req.Method,
-		Path:    req.URL.Path,
-		Body:    bdy,
+	log.Printf("error: %v", err)
+	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+		c.handleFailure()
 	}
-	b, err := json.Marshal(restReq)
-	if err != nil {
-		log.Println("marshal request: ", err)
-		return err
+	return err
+}
+
+// WriteRequest writes a request to the underlying connection
+func (c *reliableSocketConnection) WriteResponse(resp *http.Response) error {
+	var err error
+	var w io.WriteCloser
+	if w, err = c.conn.NextWriter(websocket.TextMessage); err == nil {
+		defer w.Close()
+		if err = resp.Write(w); err == nil {
+			return nil
+		}
 	}
+	log.Printf("error: %v", err)
+	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+		c.handleFailure()
+	}
+	return err
+}
+
+// this is how the connection read an http request
+func (c *reliableSocketConnection) ReadRequest() (*http.Request, error) {
+	var reader io.Reader
+	var err error
+	var mt int
+	var req *http.Request
+
+	if mt, reader, err = c.conn.NextReader(); err == nil {
+		if mt != websocket.TextMessage {
+			log.Println("error: not a text message")
+			return nil, errors.New("not a text message")
+		}
+		if req, err = http.ReadRequest(bufio.NewReader(reader)); err == nil {
+			return req, nil
+		}
+	}
+	log.Printf("error: %v", err)
+	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+		c.handleFailure()
+	}
+	return nil, err
+}
+
+// ReadResponse reads a response from the underlying connection
+func (c *reliableSocketConnection) ReadResponse() (*http.Response, error) {
+	var reader io.Reader
+	var err error
+	var mt int
+	var resp *http.Response
+	if mt, reader, err = c.conn.NextReader(); err == nil {
+		if mt != websocket.TextMessage {
+			log.Println("error: not a text message")
+			return nil, errors.New("not a text message")
+		}
+		if resp, err = http.ReadResponse(bufio.NewReader(reader), nil); err == nil {
+			return resp, nil
+		}
+	}
+
+	log.Printf("error: %v", err)
+	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+		c.handleFailure()
+	}
+	return nil, err
+}
+
+// WriteRaw writes generic bytes to the connection
+func (c *reliableSocketConnection) WriteRaw(b []byte) error {
 	if err := c.conn.WriteMessage(websocket.TextMessage, b); err != nil {
-		log.Println("cannot write request")
-		if websocket.IsCloseError(err, 1006) {
+		log.Printf("error: %v", err)
+		if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 			c.handleFailure()
 		}
 		return err
 	}
 	return nil
-}
-
-func (c *reliableSocketConnection) ReadResponse() (*http.Response, error) {
-	mt, message, err := c.conn.ReadMessage()
-
-	if err != nil {
-		log.Println("read:", err)
-		if websocket.IsCloseError(err, 1006) {
-			c.handleFailure()
-		}
-		return nil, err
-	}
-
-	if mt != websocket.TextMessage {
-		return nil, nil
-	}
-
-	resp := new(restResponse)
-	if err := json.Unmarshal(message, &resp); err != nil {
-		log.Println("unmarshal response:", err)
-		return nil, err
-	}
-
-	return &http.Response{
-		StatusCode: resp.Status,
-		Header:     resp.HeaderMap,
-		Body:       ioutil.NopCloser(bytes.NewBuffer(resp.Body)),
-	}, nil
-}
-
-func (c *reliableSocketConnection) WriteRaw(b []byte) error {
-	err := c.conn.WriteMessage(websocket.TextMessage, b)
-	if websocket.IsCloseError(err, 1006) {
-		c.handleFailure()
-	}
-	return err
 }

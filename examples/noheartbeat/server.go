@@ -9,7 +9,6 @@ import (
 )
 
 func handler(rw http.ResponseWriter, req *http.Request) {
-	log.Println("writing response")
 	rw.Write([]byte("Hello, Dolores!"))
 }
 func main() {
