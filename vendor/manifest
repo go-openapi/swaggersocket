@@ -8,6 +8,14 @@
 			"revision": "b02f2bbce11d7ea6b97f282ef1771b0fe2f65ef3",
 			"branch": "master",
 			"notests": true
+		},
+		{
+			"importpath": "github.com/gorilla/websocket",
+			"repository": "https://github.com/gorilla/websocket",
+			"vcs": "git",
+			"revision": "3ab3a8b8831546bd18fd182c20687ca853b2bb13",
+			"branch": "master",
+			"notests": true
 		}
 	]
 }

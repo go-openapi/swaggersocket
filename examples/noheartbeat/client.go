@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -38,9 +40,19 @@ func main() {
 		if err != nil {
 			continue
 		}
-		buf, _ := ioutil.ReadAll(resp.Body)
-		log.Println("response: ", string(buf))
+		reader := bufio.NewReader(resp.Body)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				log.Printf("xxx: %v", err)
+				break
+			}
+			log.Println(string(line))
+		}
 		resp.Body.Close()
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 1)
 	}
 }
