@@ -29,7 +29,7 @@ func main() {
 		URL:  reqPath,
 		Body: ioutil.NopCloser(bytes.NewBuffer(nil)),
 	}
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 2; i++ {
 		err := wsClient.Connection().WriteRequest(req)
 		if err != nil {
 			log.Println("err: ", err)
@@ -37,7 +37,7 @@ func main() {
 		}
 		resp, err := wsClient.Connection().ReadResponse()
 		log.Printf("Headers: %+v", resp.Header)
-		log.Printf("TE: %v\n", resp.TransferEncoding)
+		log.Printf("Transfer-Encoding: %v\n", resp.TransferEncoding)
 		if err != nil {
 			continue
 		}
@@ -46,7 +46,7 @@ func main() {
 		for {
 			//line, err := reader.ReadBytes('\n')
 			n, err := resp.Body.Read(readbuf)
-			if err == nil {
+			if n > 0 {
 				log.Printf("%d bytes read, body is: %s", n, string(readbuf))
 			}
 			if err == io.EOF {
