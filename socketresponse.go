@@ -188,17 +188,20 @@ var (
 
 func (h extraHeader) Write(w io.Writer) {
 	if h.date != nil {
+		log.Println("writin date")
 		w.Write(headerDate)
 		w.Write(h.date)
 		w.Write(crlf)
 	}
 	if h.contentLength != nil {
+		log.Println("writin CL")
 		w.Write(headerContentLength)
 		w.Write(h.contentLength)
 		w.Write(crlf)
 	}
 	for i, v := range []string{h.contentType, h.connection, h.transferEncoding} {
 		if v != "" {
+			log.Printf("writin %v\n", v)
 			w.Write(extraHeaderKeys[i])
 			w.Write(colonSpace)
 			w.Write([]byte(v))
@@ -306,11 +309,6 @@ func (cw *chunkWriter) writeHeader(p []byte) {
 	w := cw.res
 	isHEAD := w.req.Method == "HEAD"
 
-	// header is written out to w.conn.buf below. Depending on the
-	// state of the handler, we either own the map or not. If we
-	// don't own it, the exclude map is created lazily for
-	// WriteSubset to remove headers. The setHeader struct holds
-	// headers we need to add.
 	header := cw.header
 	owned := header != nil
 	if !owned {
@@ -379,13 +377,16 @@ func (cw *chunkWriter) writeHeader(p []byte) {
 		delHeader("Transfer-Encoding")
 	} else if w.req.ProtoAtLeast(1, 1) {
 		if hasTE && te == "identity" {
+			//log.Println("I am not in chunking mode")
 			cw.chunking = false
 		} else {
 			// HTTP/1.1 or greater: use chunked transfer encoding
 			// to avoid closing the connection at EOF.
+			//log.Println("I am in chunking mode")
 			cw.chunking = true
 			setHeader.transferEncoding = "chunked"
 			if hasTE && te == "chunked" {
+				log.Println("deleting transfer encoding")
 				// We will send the chunked Transfer-Encoding header later.
 				delHeader("Transfer-Encoding")
 			}
@@ -402,6 +403,7 @@ func (cw *chunkWriter) writeHeader(p []byte) {
 		return
 	}
 
+	log.Printf("exclude header is %+v\n", excludeHeader)
 	cw.bufw.Write([]byte(statusLine(w.req, code)))
 	cw.header.WriteSubset(cw.bufw, excludeHeader)
 	setHeader.Write(cw.bufw)

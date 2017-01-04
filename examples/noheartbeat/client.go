@@ -38,6 +38,7 @@ func main() {
 		}
 		resp, err := wsClient.Connection().ReadResponse()
 		log.Printf("Headers: %+v", resp.Header)
+		log.Printf("TE: %v\n", resp.TransferEncoding)
 		if err != nil {
 			continue
 		}
