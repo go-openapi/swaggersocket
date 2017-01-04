@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"io"
 	"io/ioutil"
@@ -30,7 +29,7 @@ func main() {
 		URL:  reqPath,
 		Body: ioutil.NopCloser(bytes.NewBuffer(nil)),
 	}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 1; i++ {
 		err := wsClient.Connection().WriteRequest(req)
 		if err != nil {
 			log.Println("err: ", err)
@@ -42,10 +41,14 @@ func main() {
 		if err != nil {
 			continue
 		}
-		reader := bufio.NewReader(resp.Body)
+		//reader := bufio.NewReader(resp.Body)
+		readbuf := make([]byte, 4096)
 		for {
-			line, err := reader.ReadBytes('\n')
-			log.Println(string(line))
+			//line, err := reader.ReadBytes('\n')
+			n, err := resp.Body.Read(readbuf)
+			if err == nil {
+				log.Printf("%d bytes read, body is: %s", n, string(readbuf))
+			}
 			if err == io.EOF {
 				log.Println("EOF reached")
 				break

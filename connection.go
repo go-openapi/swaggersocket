@@ -11,10 +11,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-//////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////// interfaces ///////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////
-
 // ConnectionType is the socket connection type, it can either be a serverside connection or a clientside connection
 type ConnectionType int
 
@@ -214,6 +210,7 @@ func (c *reliableSocketConnection) ReadRequest() (*http.Request, error) {
 	return nil, err
 }
 
+// ResponseReader is used to read an http response
 type ResponseReader struct {
 	c *reliableSocketConnection
 	r io.Reader
@@ -228,12 +225,15 @@ func (rr *ResponseReader) Read(p []byte) (int, error) {
 		rr.r = reader
 	}
 	count, err := rr.r.Read(p)
-	if count == 0 {
+	// this is a fake EOF sent because of a flush at the server side
+	if count == 0 && err == io.EOF {
+		log.Printf("I am in the count=0 path")
 		_, reader, err := rr.c.conn.NextReader()
 		if err != nil {
 			// handle error
 		}
 		rr.r = reader
+		// the correct count and EOF if any will be sent from here
 		return rr.r.Read(p)
 	}
 	return count, err
