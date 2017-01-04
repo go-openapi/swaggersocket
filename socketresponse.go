@@ -31,7 +31,6 @@ type response struct {
 	req           *http.Request // request for this response
 	reqBody       io.ReadCloser
 	wroteHeader   bool // reply header has been (logically) written
-	wroteContinue bool // 100 Continue response was written
 	wantsClose    bool // HTTP request has Connection "close"
 	w             *bufio.Writer
 	cw            chunkWriter
@@ -151,9 +150,8 @@ func (w *response) write(lenData int, dataB []byte, dataS string) (n int, err er
 	}
 	if dataB != nil {
 		return w.w.Write(dataB)
-	} else {
-		return w.w.WriteString(dataS)
 	}
+	return w.w.WriteString(dataS)
 }
 
 func (w *response) declareTrailer(k string) {
@@ -188,20 +186,17 @@ var (
 
 func (h extraHeader) Write(w io.Writer) {
 	if h.date != nil {
-		log.Println("writin date")
 		w.Write(headerDate)
 		w.Write(h.date)
 		w.Write(crlf)
 	}
 	if h.contentLength != nil {
-		log.Println("writin CL")
 		w.Write(headerContentLength)
 		w.Write(h.contentLength)
 		w.Write(crlf)
 	}
 	for i, v := range []string{h.contentType, h.connection, h.transferEncoding} {
 		if v != "" {
-			log.Printf("writin %v\n", v)
 			w.Write(extraHeaderKeys[i])
 			w.Write(colonSpace)
 			w.Write([]byte(v))
@@ -243,7 +238,6 @@ func (cw *chunkWriter) Write(p []byte) (n int, err error) {
 			// handle error
 		}
 	}
-	log.Printf("writing: %s\n", string(p))
 	n, err = cw.bufw.Write(p)
 	if cw.chunking && err == nil {
 		_, err = cw.bufw.Write(crlf)
