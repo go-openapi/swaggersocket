@@ -37,20 +37,22 @@ func main() {
 			continue
 		}
 		resp, err := wsClient.Connection().ReadResponse()
+		log.Printf("Headers: %+v", resp.Header)
 		if err != nil {
 			continue
 		}
 		reader := bufio.NewReader(resp.Body)
 		for {
 			line, err := reader.ReadBytes('\n')
+			log.Println(string(line))
 			if err == io.EOF {
+				log.Println("EOF reached")
 				break
 			}
 			if err != nil {
 				log.Printf("xxx: %v", err)
 				break
 			}
-			log.Println(string(line))
 		}
 		resp.Body.Close()
 		time.Sleep(time.Second * 1)

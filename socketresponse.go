@@ -258,11 +258,11 @@ func (cw *chunkWriter) flush() {
 	if !cw.wroteHeader {
 		cw.writeHeader(nil)
 	}
-	//bufw, err := cw.res.conn.conn.NextWriter(websocket.TextMessage)
-	//if err != nil {
-	// handle error
-	//}
-	//cw.bufw = bufw
+	bufw, err := cw.res.conn.conn.NextWriter(websocket.TextMessage)
+	if err != nil {
+		// handle error
+	}
+	cw.bufw = bufw
 }
 
 func (cw *chunkWriter) finalflush() {

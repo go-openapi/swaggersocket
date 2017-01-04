@@ -214,20 +214,43 @@ func (c *reliableSocketConnection) ReadRequest() (*http.Request, error) {
 	return nil, err
 }
 
+type ResponseReader struct {
+	c *reliableSocketConnection
+	r io.Reader
+}
+
+func (rr *ResponseReader) Read(p []byte) (int, error) {
+	if rr.r == nil {
+		_, reader, err := rr.c.conn.NextReader()
+		if err != nil {
+			// handle error
+		}
+		rr.r = reader
+	}
+	count, err := rr.r.Read(p)
+	if count == 0 {
+		_, reader, err := rr.c.conn.NextReader()
+		if err != nil {
+			// handle error
+		}
+		rr.r = reader
+		return rr.r.Read(p)
+	}
+	return count, err
+}
+
+func newResponseReader(c *reliableSocketConnection) io.Reader {
+	return &ResponseReader{
+		c: c,
+	}
+}
+
 // ReadResponse reads a response from the underlying connection
 func (c *reliableSocketConnection) ReadResponse() (*http.Response, error) {
-	var reader io.Reader
 	var err error
-	var mt int
 	var resp *http.Response
-	if mt, reader, err = c.conn.NextReader(); err == nil {
-		if mt != websocket.TextMessage {
-			log.Println("error: not a text message")
-			return nil, errors.New("not a text message")
-		}
-		if resp, err = http.ReadResponse(bufio.NewReader(reader), nil); err == nil {
-			return resp, nil
-		}
+	if resp, err = http.ReadResponse(bufio.NewReader(newResponseReader(c)), nil); err == nil {
+		return resp, nil
 	}
 
 	log.Printf("error: %v", err)
