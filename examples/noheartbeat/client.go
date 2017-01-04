@@ -54,8 +54,7 @@ func main() {
 				break
 			}
 			if err != nil {
-				log.Printf("xxx: %v", err)
-				break
+				// handle error
 			}
 		}
 		resp.Body.Close()

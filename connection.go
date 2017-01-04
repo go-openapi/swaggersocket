@@ -227,7 +227,6 @@ func (rr *ResponseReader) Read(p []byte) (int, error) {
 	count, err := rr.r.Read(p)
 	// this is a fake EOF sent because of a flush at the server side
 	if count == 0 && err == io.EOF {
-		log.Printf("I am in the count=0 path")
 		_, reader, err := rr.c.conn.NextReader()
 		if err != nil {
 			// handle error
