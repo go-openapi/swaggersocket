@@ -237,18 +237,6 @@ func (c *SocketConnection) ReadResponse() (*http.Response, error) {
 	return nil, err
 }
 
-// WriteRaw writes generic bytes to the connection
-func (c *SocketConnection) WriteRaw(b []byte) error {
-	if err := c.conn.WriteMessage(websocket.TextMessage, b); err != nil {
-		log.Printf("error: %v", err)
-		if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-			c.handleFailure()
-		}
-		return err
-	}
-	return nil
-}
-
 func (c *SocketConnection) Serve(ctx context.Context, hdlr http.Handler) error {
 	ctx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
