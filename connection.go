@@ -170,7 +170,7 @@ func (c *SocketConnection) readRequest(ctx context.Context) (*response, error) {
 			if err != nil {
 				// handle failure
 			}
-			w.cw.bufw = bufw
+			w.cw.writer = bufw
 			w.w = newBufioWriterSize(&w.cw, bufferBeforeChunkingSize)
 			return w, nil
 		}
@@ -182,25 +182,7 @@ func (c *SocketConnection) readRequest(ctx context.Context) (*response, error) {
 	return nil, err
 }
 
-//func (c *reliableSocketConnection) newresponse(req *http.Request) *response {
-//	w := &response{
-//		conn:          c,
-//		req:           req,
-//		reqBody:       req.Body,
-//		handlerHeader: make(http.Header),
-//		contentLength: -1,
-//	}
-//	w.cw.res = w
-//	bufw, err := c.conn.NextWriter(websocket.TextMessage)
-//	if err != nil {
-//		// handle failure
-//	}
-//	w.cw.bufw = bufw
-//	w.w = newBufioWriterSize(&w.cw, bufferBeforeChunkingSize)
-//	return w
-//}
-
-// ResponseReader is used to read an http response
+// ResponseReader is a specialized reader that reads streams on websockets
 type ResponseReader struct {
 	c *SocketConnection
 	r io.Reader

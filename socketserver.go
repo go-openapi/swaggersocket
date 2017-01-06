@@ -30,8 +30,8 @@ type Envelope struct {
 func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketServer {
 	srvr := &WebsocketServer{
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
+			ReadBufferSize:  1,
+			WriteBufferSize: 1,
 		},
 		addr:          addr,
 		keepAlive:     keepAlive,

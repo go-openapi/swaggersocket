@@ -217,7 +217,7 @@ type chunkWriter struct {
 	header      http.Header
 	wroteHeader bool
 	chunking    bool
-	bufw        io.WriteCloser
+	writer      io.WriteCloser
 }
 
 var (
@@ -227,6 +227,7 @@ var (
 
 // this is called whenever response.w is written to
 func (cw *chunkWriter) Write(p []byte) (n int, err error) {
+	log.Printf("Writing %s", string(p))
 	if !cw.wroteHeader {
 		// based on p the headers can be deduced
 		cw.writeHeader(p)
@@ -235,14 +236,14 @@ func (cw *chunkWriter) Write(p []byte) (n int, err error) {
 		return len(p), nil
 	}
 	if cw.chunking {
-		_, err := fmt.Fprintf(cw.bufw, "%x\r\n", len(p))
+		_, err := fmt.Fprintf(cw.writer, "%x\r\n", len(p))
 		if err != nil {
 			cw.res.conn.handleFailure()
 		}
 	}
-	n, err = cw.bufw.Write(p)
+	n, err = cw.writer.Write(p)
 	if cw.chunking && err == nil {
-		_, err = cw.bufw.Write(crlf)
+		_, err = cw.writer.Write(crlf)
 	}
 	if err != nil {
 		// handle failure of writing
@@ -257,20 +258,20 @@ func (cw *chunkWriter) flush() {
 	if !cw.wroteHeader {
 		cw.writeHeader(nil)
 	}
-	cw.bufw.Close()
-	bufw, err := cw.res.conn.conn.NextWriter(websocket.TextMessage)
+	cw.writer.Close()
+	w, err := cw.res.conn.conn.NextWriter(websocket.TextMessage)
 	if err != nil {
-		// handle error
+		cw.res.conn.handleFailure()
 	}
-	cw.bufw = bufw
+	cw.writer = w
 }
 
 func (cw *chunkWriter) finalflush() {
 	if !cw.wroteHeader {
 		cw.writeHeader(nil)
 	}
-	cw.bufw.Close()
-	cw.bufw = nil
+	cw.writer.Close()
+	cw.writer = nil
 }
 
 // writes the last chunck if chunkEncoding
@@ -279,7 +280,7 @@ func (cw *chunkWriter) close() {
 		cw.writeHeader(nil)
 	}
 	if cw.chunking {
-		bw := cw.bufw // conn's bufio writer
+		bw := cw.writer // conn's bufio writer
 		// zero chunk to mark EOF
 		bw.Write([]byte("0\r\n"))
 		if len(cw.res.trailers) > 0 {
@@ -396,10 +397,10 @@ func (cw *chunkWriter) writeHeader(p []byte) {
 		return
 	}
 
-	cw.bufw.Write([]byte(statusLine(w.req, code)))
-	cw.header.WriteSubset(cw.bufw, excludeHeader)
-	setHeader.Write(cw.bufw)
-	cw.bufw.Write(crlf)
+	cw.writer.Write([]byte(statusLine(w.req, code)))
+	cw.header.WriteSubset(cw.writer, excludeHeader)
+	setHeader.Write(cw.writer)
+	cw.writer.Write(crlf)
 }
 
 func newBufioWriterSize(w io.Writer, size int) *bufio.Writer {
