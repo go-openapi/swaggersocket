@@ -2,6 +2,8 @@ package restwebsocket
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -27,7 +29,9 @@ var (
 )
 
 type response struct {
-	conn          *reliableSocketConnection
+	conn          *SocketConnection
+	connClosed    bool // when the connection fails, the response writer should not write anything to the connection
+	cancelCtx     context.CancelFunc
 	req           *http.Request // request for this response
 	reqBody       io.ReadCloser
 	wroteHeader   bool // reply header has been (logically) written
@@ -43,10 +47,10 @@ type response struct {
 	requestBodyLimitHit bool
 	trailers            []string
 
-	handlerDone atomicBool // set true when the handler exits
-
-	dateBuf [len(TimeFormat)]byte
-	clenBuf [10]byte
+	handlerDone   atomicBool // set true when the handler exits
+	closeNotifyCh <-chan bool
+	dateBuf       [len(TimeFormat)]byte
+	clenBuf       [10]byte
 }
 
 type atomicBool int32
@@ -55,7 +59,7 @@ func (b *atomicBool) isSet() bool { return atomic.LoadInt32((*int32)(b)) != 0 }
 func (b *atomicBool) setTrue()    { atomic.StoreInt32((*int32)(b), 1) }
 
 func (w *response) WriteHeader(code int) {
-	if w.wroteHeader {
+	if w.wroteHeader || w.connClosed {
 		return
 	}
 	w.wroteHeader = true
@@ -94,7 +98,10 @@ func (w *response) Header() http.Header {
 	return w.handlerHeader
 }
 
-func (w *response) Write(data []byte) (n int, err error) {
+func (w *response) Write(data []byte) (int, error) {
+	if w.connClosed {
+		return -1, errors.New("connection closed")
+	}
 	return w.write(len(data), data, "")
 }
 
@@ -227,15 +234,10 @@ func (cw *chunkWriter) Write(p []byte) (n int, err error) {
 	if cw.res.req.Method == "HEAD" {
 		return len(p), nil
 	}
-
-	if err != nil {
-		// handle failure
-	}
 	if cw.chunking {
-		//_, err = fmt.Fprintf(cw.res.conn.bufw, "%x\r\n", len(p))
 		_, err := fmt.Fprintf(cw.bufw, "%x\r\n", len(p))
 		if err != nil {
-			// handle error
+			cw.res.conn.handleFailure()
 		}
 	}
 	n, err = cw.bufw.Write(p)
@@ -372,12 +374,8 @@ func (cw *chunkWriter) writeHeader(p []byte) {
 		delHeader("Transfer-Encoding")
 	} else if w.req.ProtoAtLeast(1, 1) {
 		if hasTE && te == "identity" {
-			//log.Println("I am not in chunking mode")
 			cw.chunking = false
 		} else {
-			// HTTP/1.1 or greater: use chunked transfer encoding
-			// to avoid closing the connection at EOF.
-			//log.Println("I am in chunking mode")
 			cw.chunking = true
 			setHeader.transferEncoding = "chunked"
 			if hasTE && te == "chunked" {
@@ -398,32 +396,10 @@ func (cw *chunkWriter) writeHeader(p []byte) {
 		return
 	}
 
-	log.Printf("exclude header is %+v\n", excludeHeader)
 	cw.bufw.Write([]byte(statusLine(w.req, code)))
 	cw.header.WriteSubset(cw.bufw, excludeHeader)
 	setHeader.Write(cw.bufw)
 	cw.bufw.Write(crlf)
-}
-
-// foreachHeaderElement splits v according to the "#rule" construction
-// in RFC 2616 section 2.1 and calls fn for each non-empty element.
-
-func (c *reliableSocketConnection) newresponse(req *http.Request) *response {
-	w := &response{
-		conn:          c,
-		req:           req,
-		reqBody:       req.Body,
-		handlerHeader: make(http.Header),
-		contentLength: -1,
-	}
-	w.cw.res = w
-	bufw, err := c.conn.NextWriter(websocket.TextMessage)
-	if err != nil {
-		// handle failure
-	}
-	w.cw.bufw = bufw
-	w.w = newBufioWriterSize(&w.cw, bufferBeforeChunkingSize)
-	return w
 }
 
 func newBufioWriterSize(w io.Writer, size int) *bufio.Writer {

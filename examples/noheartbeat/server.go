@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -35,7 +36,6 @@ func main() {
 	}
 	for conn := range ch {
 		log.Println("new client connection")
-		server := restwebsocket.NewAPIServer(conn, http.HandlerFunc(chunkedHandler))
-		server.Serve()
+		conn.Serve(context.Background(), http.HandlerFunc(handler))
 	}
 }

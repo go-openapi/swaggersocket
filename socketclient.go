@@ -8,8 +8,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type websocketClient struct {
-	conn            SocketConnection
+type WebsocketClient struct {
+	conn            *SocketConnection
 	addr            *url.URL
 	handlerLoop     func()
 	isRestapiServer bool
@@ -19,8 +19,8 @@ type websocketClient struct {
 	appData         []byte
 }
 
-func NewWebSocketClient(u *url.URL, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) RestSocketClient {
-	return &websocketClient{
+func NewWebSocketClient(u *url.URL, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketClient {
+	return &WebsocketClient{
 		keepAlive: keepAlive,
 		pingHdlr:  pingHdlr,
 		pongHdlr:  pongHdlr,
@@ -29,7 +29,7 @@ func NewWebSocketClient(u *url.URL, keepAlive bool, pingHdlr, pongHdlr func(stri
 	}
 }
 
-func (sc *websocketClient) Connect() error {
+func (sc *WebsocketClient) Connect() error {
 	operation := func() error {
 		conn, _, err := websocket.DefaultDialer.Dial(sc.addr.String(), nil)
 		if err != nil {
@@ -43,7 +43,7 @@ func (sc *websocketClient) Connect() error {
 
 		//////
 
-		c := newReliableSocketConnection(conn, "dummyConnectionId", sc.keepAlive, sc.pingHdlr, sc.pongHdlr, sc.appData)
+		c := NewSocketConnection(conn, "dummyConnectionId", sc.keepAlive, sc.pingHdlr, sc.pongHdlr, sc.appData)
 		c.setSocketClient(sc)
 		c.setType(ClientSide)
 		sc.conn = c
@@ -63,6 +63,6 @@ func (sc *websocketClient) Connect() error {
 	return nil
 }
 
-func (sc *websocketClient) Connection() SocketConnection {
+func (sc *WebsocketClient) Connection() *SocketConnection {
 	return sc.conn
 }

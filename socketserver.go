@@ -7,19 +7,19 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type websocketServer struct {
+type WebsocketServer struct {
 	upgrader           websocket.Upgrader
 	addr               string
-	connectionMap      map[string]*reliableSocketConnection
+	connectionMap      map[string]*SocketConnection
 	keepAlive          bool
 	pingHdlr, pongHdlr func(string) error
 	appData            []byte
 	handlerLoop        func()
 	isRestapiServer    bool
 	apiHdlr            http.Handler
-	connectionCh       chan SocketConnection
-	register           chan *reliableSocketConnection
-	unregister         chan *reliableSocketConnection
+	connectionCh       chan *SocketConnection
+	register           chan *SocketConnection
+	unregister         chan *SocketConnection
 }
 
 type Envelope struct {
@@ -27,8 +27,8 @@ type Envelope struct {
 	Payload       []byte
 }
 
-func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) RestSocketServer {
-	srvr := &websocketServer{
+func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketServer {
+	srvr := &WebsocketServer{
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -38,19 +38,19 @@ func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pong
 		pingHdlr:      pingHdlr,
 		pongHdlr:      pongHdlr,
 		appData:       appData,
-		connectionMap: make(map[string]*reliableSocketConnection),
-		register:      make(chan *reliableSocketConnection),
-		unregister:    make(chan *reliableSocketConnection),
+		connectionMap: make(map[string]*SocketConnection),
+		register:      make(chan *SocketConnection),
+		unregister:    make(chan *SocketConnection),
 	}
 	srvr.Manage()
 	return srvr
 }
 
-func (ss *websocketServer) Manage() {
+func (ss *WebsocketServer) Manage() {
 	go ss.manage()
 }
 
-func (ss *websocketServer) manage() {
+func (ss *WebsocketServer) manage() {
 	for {
 		select {
 		case conn := <-ss.register:
@@ -70,15 +70,15 @@ func (ss *websocketServer) manage() {
 	}
 }
 
-func (ss *websocketServer) Accept() (<-chan SocketConnection, error) {
-	ch := make(chan SocketConnection)
+func (ss *WebsocketServer) Accept() (<-chan *SocketConnection, error) {
+	ch := make(chan *SocketConnection)
 	ss.connectionCh = ch
 	http.HandleFunc("/", ss.websocketHandler)
 	go http.ListenAndServe(ss.addr, nil)
 	return ch, nil
 }
 
-func (ss *websocketServer) websocketHandler(w http.ResponseWriter, r *http.Request) {
+func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("received request")
 	c, err := ss.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -87,7 +87,7 @@ func (ss *websocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	}
 	// ToDo Handshake to get connection id
 
-	conn := newReliableSocketConnection(c, "dummyID", ss.keepAlive, ss.pingHdlr, ss.pongHdlr, ss.appData)
+	conn := NewSocketConnection(c, "dummyID", ss.keepAlive, ss.pingHdlr, ss.pongHdlr, ss.appData)
 	conn.setType(ServerSide)
 	conn.setSocketServer(ss)
 	ss.register <- conn
@@ -100,6 +100,6 @@ func (ss *websocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 }
 
 //
-func (ss *websocketServer) Connection(id string) SocketConnection {
+func (ss *WebsocketServer) Connection(id string) *SocketConnection {
 	return ss.connectionMap[id]
 }

@@ -21,6 +21,7 @@ func main() {
 	if err := wsClient.Connect(); err != nil {
 		log.Println("connect: ", err)
 	}
+	defer wsClient.Connection().Close()
 
 	reqPath := &url.URL{
 		Path: "/",
