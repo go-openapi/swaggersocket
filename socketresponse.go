@@ -80,6 +80,10 @@ func (w *response) WriteHeader(code int) {
 	}
 }
 
+func (w *response) CloseNotify() <-chan bool {
+	return w.conn.closeNotificationCh
+}
+
 func cloneHeader(h http.Header) http.Header {
 	h2 := make(http.Header, len(h))
 	for k, vv := range h {
@@ -226,7 +230,9 @@ var (
 )
 
 // this is called whenever response.w is written to
-func (cw *chunkWriter) Write(p []byte) (n int, err error) {
+func (cw *chunkWriter) Write(p []byte) (int, error) {
+	var n int
+	var err error
 	log.Printf("Writing %s", string(p))
 	if !cw.wroteHeader {
 		// based on p the headers can be deduced
@@ -236,20 +242,25 @@ func (cw *chunkWriter) Write(p []byte) (n int, err error) {
 		return len(p), nil
 	}
 	if cw.chunking {
-		_, err := fmt.Fprintf(cw.writer, "%x\r\n", len(p))
-		if err != nil {
-			cw.res.conn.handleFailure()
+		if cw.writer != nil {
+			_, err := fmt.Fprintf(cw.writer, "%x\r\n", len(p))
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+					cw.res.cancelCtx()
+					return 0, err
+				}
+			}
 		}
+
 	}
 	n, err = cw.writer.Write(p)
 	if cw.chunking && err == nil {
 		_, err = cw.writer.Write(crlf)
 	}
 	if err != nil {
-		// handle failure of writing
-		//cw.res.conn.rwc.Close()
+		return 0, err
 	}
-	return
+	return n, err
 }
 
 // NextWriter returns a writer for the next message to send. The writer's Close method flushes the complete message to the network.
@@ -258,10 +269,15 @@ func (cw *chunkWriter) flush() {
 	if !cw.wroteHeader {
 		cw.writeHeader(nil)
 	}
-	cw.writer.Close()
+	err := cw.writer.Close()
+	if err != nil {
+		log.Printf("Err: %s", err.Error())
+		return
+	}
 	w, err := cw.res.conn.conn.NextWriter(websocket.TextMessage)
 	if err != nil {
-		cw.res.conn.handleFailure()
+		log.Printf("Err: %s", err.Error())
+		return
 	}
 	cw.writer = w
 }
@@ -270,7 +286,9 @@ func (cw *chunkWriter) finalflush() {
 	if !cw.wroteHeader {
 		cw.writeHeader(nil)
 	}
-	cw.writer.Close()
+	if err := cw.writer.Close(); err != nil {
+		log.Printf("Err: %s", err.Error())
+	}
 	cw.writer = nil
 }
 

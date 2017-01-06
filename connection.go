@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -38,14 +40,17 @@ const (
 
 // SocketConnection is a wrapper around the websocket connection to handle http
 type SocketConnection struct {
-	socketserver *WebsocketServer
-	socketclient *WebsocketClient
-	connType     ConnectionType
-	conn         *websocket.Conn
-	id           string
-	heartBeat    *heartbeat
+	socketserver        *WebsocketServer
+	socketclient        *WebsocketClient
+	connType            ConnectionType
+	conn                *websocket.Conn
+	id                  string
+	heartBeat           *heartbeat
+	closeNotificationCh chan bool
+	once                sync.Once
 }
 
+// NewSocketConnection creates a new socket connection
 func NewSocketConnection(c *websocket.Conn, id string, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *SocketConnection {
 	// Default ping handler is to send back a pong control message with the same application data
 	// Default pong handler is to do nothing
@@ -56,16 +61,17 @@ func NewSocketConnection(c *websocket.Conn, id string, keepAlive bool, pingHdlr,
 	if pongHdlr != nil {
 		c.SetPongHandler(pingHdlr)
 	}
-	var hb *heartbeat
+
+	sockconn := &SocketConnection{
+		conn:                c,
+		id:                  id,
+		closeNotificationCh: make(chan bool),
+	}
 	if keepAlive {
 		// create a new heartbeat object
-		hb = newHeartBeat(c, heartbeatPeriod, pingwriteWait, appData)
+		sockconn.heartBeat = newHeartBeat(sockconn, heartbeatPeriod, pingwriteWait, appData)
 	}
-	return &SocketConnection{
-		conn:      c,
-		heartBeat: hb,
-		id:        id,
-	}
+	return sockconn
 }
 
 func (c *SocketConnection) setType(t ConnectionType) {
@@ -101,7 +107,9 @@ func (c *SocketConnection) handleFailure() {
 	if c.heartBeat != nil {
 		c.heartBeat.stop()
 	}
+	fmt.Println("I am here")
 	if c.connType == ServerSide {
+		//go c.once.Do(func() { c.closeNotificationCh <- true })
 		log.Printf("removing connection with id %s from connection list\n", c.id)
 		// remove this connection from the server connectionMap
 		c.socketserver.unregister <- c
@@ -175,10 +183,6 @@ func (c *SocketConnection) readRequest(ctx context.Context) (*response, error) {
 			return w, nil
 		}
 	}
-	log.Printf("error: %v", err)
-	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-		c.handleFailure()
-	}
 	return nil, err
 }
 
@@ -192,7 +196,7 @@ func (rr *ResponseReader) Read(p []byte) (int, error) {
 	if rr.r == nil {
 		_, reader, err := rr.c.conn.NextReader()
 		if err != nil {
-			// handle error
+			return 0, err
 		}
 		rr.r = reader
 	}
@@ -201,7 +205,8 @@ func (rr *ResponseReader) Read(p []byte) (int, error) {
 	if count == 0 && err == io.EOF {
 		_, reader, err := rr.c.conn.NextReader()
 		if err != nil {
-			// handle error
+			log.Printf("Err: %v", err)
+			return 0, err
 		}
 		rr.r = reader
 		// the correct count and EOF if any will be sent from here
@@ -249,6 +254,7 @@ func (c *SocketConnection) Serve(ctx context.Context, hdlr http.Handler) error {
 	for {
 		resp, err := c.readRequest(ctx)
 		if err != nil {
+			log.Println("error reading from connection")
 			return err
 		}
 		hdlr.ServeHTTP(resp, resp.req)

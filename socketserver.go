@@ -30,8 +30,8 @@ type Envelope struct {
 func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketServer {
 	srvr := &WebsocketServer{
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1,
-			WriteBufferSize: 1,
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
 		},
 		addr:          addr,
 		keepAlive:     keepAlive,
@@ -93,6 +93,7 @@ func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	ss.register <- conn
 	// start heartbeat
 	if conn.heartBeat != nil {
+		log.Println("starting heartbeat")
 		conn.heartBeat.start()
 	}
 	ss.connectionCh <- conn

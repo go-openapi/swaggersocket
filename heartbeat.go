@@ -8,22 +8,22 @@ import (
 )
 
 const (
-	heartbeatPeriod = 30 * time.Second
-	pingwriteWait   = 5 * time.Second
+	heartbeatPeriod = 5 * time.Second
+	pingwriteWait   = 2 * time.Second
 )
 
 // The reason for heartbeat is to to utilize the underlying websocket ping pong mechanism to keep connections alive
 type heartbeat struct {
-	conn          *websocket.Conn
+	sockconn      *SocketConnection
 	period        time.Duration
 	pingWriteWait time.Duration
 	pingMsg       []byte
 	stopCh        chan struct{}
 }
 
-func newHeartBeat(c *websocket.Conn, period, pingwritewait time.Duration, appData []byte) *heartbeat {
+func newHeartBeat(c *SocketConnection, period, pingwritewait time.Duration, appData []byte) *heartbeat {
 	return &heartbeat{
-		conn:          c,
+		sockconn:      c,
 		period:        period,
 		pingWriteWait: pingwritewait,
 		pingMsg:       appData,
@@ -41,8 +41,9 @@ func (hb *heartbeat) start() {
 			case <-ticker.C:
 				// write a websocket ping control message. WriteControl is safe to use concurrently
 				log.Println("sending ping message")
-				if err := hb.conn.WriteControl(websocket.PingMessage, hb.pingMsg, time.Now().Add(hb.pingWriteWait)); err != nil {
+				if err := hb.sockconn.conn.WriteControl(websocket.PingMessage, hb.pingMsg, time.Now().Add(hb.pingWriteWait)); err != nil {
 					log.Println("ping message: ", err)
+					hb.sockconn.handleFailure()
 				}
 			case <-hb.stopCh:
 				return

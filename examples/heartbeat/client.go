@@ -17,7 +17,7 @@ func main() {
 		Host:   "localhost:9090",
 		Scheme: "ws",
 	}
-	wsClient := restwebsocket.NewWebSocketClient(u, false, nil, nil, nil)
+	wsClient := restwebsocket.NewWebSocketClient(u, true, nil, nil, nil)
 	if err := wsClient.Connect(); err != nil {
 		log.Println("connect: ", err)
 	}
@@ -30,16 +30,16 @@ func main() {
 		URL:  reqPath,
 		Body: ioutil.NopCloser(bytes.NewBuffer(nil)),
 	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 50; i++ {
 		err := wsClient.Connection().WriteRequest(req)
 		if err != nil {
 			log.Println("err: ", err)
+			time.Sleep(time.Second * 1)
 			continue
 		}
 		resp, err := wsClient.Connection().ReadResponse()
-		log.Printf("Headers: %+v", resp.Header)
-		log.Printf("Transfer-Encoding: %v\n", resp.TransferEncoding)
 		if err != nil {
+			time.Sleep(time.Second * 1)
 			continue
 		}
 		//reader := bufio.NewReader(resp.Body)
@@ -47,14 +47,15 @@ func main() {
 		for {
 			//line, err := reader.ReadBytes('\n')
 			n, err := resp.Body.Read(readbuf)
-			if err != nil {
-				break
-			}
 			if n > 0 {
 				log.Printf("%d bytes read, body is: %s", n, string(readbuf))
 			}
 			if err == io.EOF {
 				log.Println("EOF reached")
+				break
+			}
+			if err != nil {
+				log.Printf("error: %v", err)
 				break
 			}
 		}
