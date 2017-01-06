@@ -142,25 +142,8 @@ func (c *SocketConnection) WriteRequest(req *http.Request) error {
 	return err
 }
 
-// WriteRequest writes a request to the underlying connection
-func (c *SocketConnection) WriteResponse(resp *http.Response) error {
-	var err error
-	var w io.WriteCloser
-	if w, err = c.conn.NextWriter(websocket.TextMessage); err == nil {
-		defer w.Close()
-		if err = resp.Write(w); err == nil {
-			return nil
-		}
-	}
-	log.Printf("error: %v", err)
-	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-		c.handleFailure()
-	}
-	return err
-}
-
-// this is how the connection read an http request
-func (c *SocketConnection) ReadRequest(ctx context.Context) (*response, error) {
+// readRequest is how the connection read an http request and returns an http response
+func (c *SocketConnection) readRequest(ctx context.Context) (*response, error) {
 	var reader io.Reader
 	var err error
 	var mt int
@@ -282,7 +265,7 @@ func (c *SocketConnection) Serve(ctx context.Context, hdlr http.Handler) error {
 	ctx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
 	for {
-		resp, err := c.ReadRequest(ctx)
+		resp, err := c.readRequest(ctx)
 		if err != nil {
 			return err
 		}

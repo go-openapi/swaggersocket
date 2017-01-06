@@ -36,6 +36,6 @@ func main() {
 	}
 	for conn := range ch {
 		log.Println("new client connection")
-		conn.Serve(context.Background(), http.HandlerFunc(handler))
+		conn.Serve(context.Background(), http.HandlerFunc(chunkedHandler))
 	}
 }
