@@ -109,7 +109,8 @@ func (c *SocketConnection) handleFailure() {
 	}
 	fmt.Println("I am here")
 	if c.connType == ServerSide {
-		//go c.once.Do(func() { c.closeNotificationCh <- true })
+		// ToAsk: is it OK to have this given that the channel might never be consumed if the handler has exited
+		go c.once.Do(func() { c.closeNotificationCh <- true })
 		log.Printf("removing connection with id %s from connection list\n", c.id)
 		// remove this connection from the server connectionMap
 		c.socketserver.unregister <- c
