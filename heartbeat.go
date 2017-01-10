@@ -18,7 +18,7 @@ type heartbeat struct {
 	period        time.Duration
 	pingWriteWait time.Duration
 	pingMsg       []byte
-	stopCh        chan struct{}
+	stopCh        chan chan struct{}
 }
 
 func newHeartBeat(c *SocketConnection, period, pingwritewait time.Duration, appData []byte) *heartbeat {
@@ -27,32 +27,44 @@ func newHeartBeat(c *SocketConnection, period, pingwritewait time.Duration, appD
 		period:        period,
 		pingWriteWait: pingwritewait,
 		pingMsg:       appData,
-		stopCh:        make(chan struct{}),
+		stopCh:        make(chan chan struct{}),
 	}
 }
 
 func (hb *heartbeat) start() {
+
 	go func() {
 		// periodically send a ping control message
 		ticker := time.NewTicker(hb.period)
 		defer ticker.Stop()
 		for {
 			select {
+			// extra caution is required when both channels have values AT THE SAME TIME
 			case <-ticker.C:
 				// write a websocket ping control message. WriteControl is safe to use concurrently
-				log.Println("sending ping message")
 				if err := hb.sockconn.conn.WriteControl(websocket.PingMessage, hb.pingMsg, time.Now().Add(hb.pingWriteWait)); err != nil {
-					log.Println("ping message: ", err)
-					hb.sockconn.handleFailure()
+					if err != websocket.ErrCloseSent {
+						log.Printf("heartbeat: connection failure detected")
+						// this has to be its own goroutine
+						go hb.sockconn.handleFailure()
+					}
+
 				}
-			case <-hb.stopCh:
+			case ch := <-hb.stopCh:
+				ch <- struct{}{}
+				log.Println("stopping heartbeat for connection")
 				return
 			}
 		}
 	}()
-
 }
 
 func (hb *heartbeat) stop() {
+	ch := make(chan struct{})
+	defer close(ch)
+	hb.stopCh <- ch
+	// this gurantees that stop() will not return unless the heartbeat actually stops
+	// solves a race issue
+	<-ch
 	close(hb.stopCh)
 }

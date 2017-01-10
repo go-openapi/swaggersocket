@@ -30,7 +30,7 @@ func main() {
 		URL:  reqPath,
 		Body: ioutil.NopCloser(bytes.NewBuffer(nil)),
 	}
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		err := wsClient.Connection().WriteRequest(req)
 		if err != nil {
 			log.Println("err: ", err)
@@ -62,4 +62,9 @@ func main() {
 		resp.Body.Close()
 		time.Sleep(time.Second * 1)
 	}
+	if err := wsClient.Connection().Close(); err != nil {
+		log.Printf("closing: %v", err)
+	}
+	ch := make(chan bool)
+	<-ch
 }

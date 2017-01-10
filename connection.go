@@ -3,8 +3,6 @@ package restwebsocket
 import (
 	"bufio"
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -36,17 +34,21 @@ const (
 
 	// Maximum message size allowed from peer.
 	maxMessageSize = 512
+
+	closeWriteWait = 10 * time.Second
 )
 
 // SocketConnection is a wrapper around the websocket connection to handle http
 type SocketConnection struct {
-	socketserver        *WebsocketServer
-	socketclient        *WebsocketClient
-	connType            ConnectionType
-	conn                *websocket.Conn
-	id                  string
-	heartBeat           *heartbeat
+	socketserver *WebsocketServer
+	socketclient *WebsocketClient
+	connType     ConnectionType
+	conn         *websocket.Conn
+	id           string
+	heartBeat    *heartbeat
+	// The close notificationChannel is only created if this connection serves an api
 	closeNotificationCh chan bool
+	closeHandlerCh      chan bool
 	once                sync.Once
 }
 
@@ -65,12 +67,19 @@ func NewSocketConnection(c *websocket.Conn, id string, keepAlive bool, pingHdlr,
 	sockconn := &SocketConnection{
 		conn:                c,
 		id:                  id,
-		closeNotificationCh: make(chan bool),
+		closeNotificationCh: nil,
+		closeHandlerCh:      nil,
 	}
 	if keepAlive {
 		// create a new heartbeat object
 		sockconn.heartBeat = newHeartBeat(sockconn, heartbeatPeriod, pingwriteWait, appData)
 	}
+	c.SetCloseHandler(func(code int, text string) error {
+		log.Println("Close message recieved from peer")
+		log.Println("cleaning up connection resources")
+		sockconn.cleanupConnection()
+		return nil
+	})
 	return sockconn
 }
 
@@ -103,31 +112,65 @@ func (c *SocketConnection) HeartBeat() *heartbeat {
 }
 
 func (c *SocketConnection) handleFailure() {
-	log.Println("connection failure detected")
-	if c.heartBeat != nil {
-		c.heartBeat.stop()
-	}
-	fmt.Println("I am here")
-	if c.connType == ServerSide {
-		// ToAsk: is it OK to have this given that the channel might never be consumed if the handler has exited
-		go c.once.Do(func() { c.closeNotificationCh <- true })
-		log.Printf("removing connection with id %s from connection list\n", c.id)
-		// remove this connection from the server connectionMap
-		c.socketserver.unregister <- c
-	} else {
-		// try to reconnect with exponential backoff
+
+	c.cleanupConnection()
+	if c.connType == ClientSide {
+		// reconnect with exponential backoff
 		c.socketclient.Connect()
 	}
 }
 
-// Close provides a graceful termination of the connection
-func (c *SocketConnection) Close() error {
-	// stop the heartbeat protocol
+// cleanup connection prepares for closing the connection. It acts as the close handler for the websocket connection
+func (c *SocketConnection) cleanupConnection() {
+	// the sequence of operations is very imprtant
+	defer log.Printf("Websocket connection closed")
+	if c.closeHandlerCh != nil {
+		c.closeHandlerCh <- true
+	}
+	if c.closeNotificationCh != nil {
+		// this will block until the apiserver loop reads the value
+		c.once.Do(func() { c.closeNotificationCh <- true })
+	}
+	// stop the heartbeat protocol.
 	if c.heartBeat != nil {
 		c.heartBeat.stop()
 	}
+	if c.connType == ServerSide {
+		// remove this connection from the server connectionMap
+		c.socketserver.unregister <- c
+	}
+	c.conn.Close()
+}
+
+// Close provides a graceful termination of the connection
+func (c *SocketConnection) Close() error {
+	if c.closeHandlerCh != nil {
+		c.closeHandlerCh <- true
+	}
+	if c.closeNotificationCh != nil {
+		// this will block until the apiserver loop exits
+		// this is very important to happen before the heartbeat stop
+		// causes race if the socket server wants to close the connection
+		c.once.Do(func() { c.closeNotificationCh <- true })
+	}
+	if c.heartBeat != nil {
+		log.Println("Stopping the heartbeat")
+		c.heartBeat.stop()
+	}
+
+	if c.connType == ServerSide {
+		// remove this connection from the server connectionMap
+		c.socketserver.unregister <- c
+	}
 	// some more stuff to do before closing the connection
-	return c.conn.Close()
+	// write a close control message to the peer so that the peer can cleanup the connection
+	c.conn.WriteControl(websocket.CloseMessage, nil, time.Now().Add(closeWriteWait))
+	// close the underlying network connection
+	if err := c.conn.Close(); err != nil {
+		log.Printf("closing websocket connection: %v", err)
+		return err
+	}
+	return nil
 }
 
 func (c *SocketConnection) ID() string {
@@ -155,14 +198,8 @@ func (c *SocketConnection) WriteRequest(req *http.Request) error {
 func (c *SocketConnection) readRequest(ctx context.Context) (*response, error) {
 	var reader io.Reader
 	var err error
-	var mt int
 	var req *http.Request
-
-	if mt, reader, err = c.conn.NextReader(); err == nil {
-		if mt != websocket.TextMessage {
-			log.Println("error: not a text message")
-			return nil, errors.New("not a text message")
-		}
+	if _, reader, err = c.conn.NextReader(); err == nil {
 		if req, err = http.ReadRequest(bufio.NewReader(reader)); err == nil {
 			ctx, cancelCtx := context.WithCancel(ctx)
 			req = req.WithContext(ctx)
@@ -206,7 +243,7 @@ func (rr *ResponseReader) Read(p []byte) (int, error) {
 	if count == 0 && err == io.EOF {
 		_, reader, err := rr.c.conn.NextReader()
 		if err != nil {
-			log.Printf("Err: %v", err)
+			log.Printf("reading error: %v", err)
 			return 0, err
 		}
 		rr.r = reader
@@ -237,17 +274,43 @@ func (c *SocketConnection) ReadResponse() (*http.Response, error) {
 	return nil, err
 }
 
-func (c *SocketConnection) Serve(ctx context.Context, hdlr http.Handler) error {
+func (c *SocketConnection) Serve(ctx context.Context, hdlr http.Handler) {
+	go c.serve(ctx, hdlr)
+}
+
+func (c *SocketConnection) serve(ctx context.Context, hdlr http.Handler) {
 	ctx, cancelCtx := context.WithCancel(ctx)
 	defer cancelCtx()
-	for {
-		resp, err := c.readRequest(ctx)
-		if err != nil {
-			log.Println("error reading from connection")
-			return err
+	defer log.Println("exiting api-server loop")
+	c.closeNotificationCh = make(chan bool)
+	defer close(c.closeNotificationCh)
+	requestCh := make(chan *response)
+	defer close(requestCh)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-c.closeNotificationCh:
+				return
+			case resp := <-requestCh:
+				// you can listen to the closenotification channel inside the handler because the response writer implements the closeNotfiy interface. This is useful for long running handlers such as log --follow
+				hdlr.ServeHTTP(resp, resp.req)
+				resp.cancelCtx()
+				resp.finishRequest()
+			}
 		}
-		hdlr.ServeHTTP(resp, resp.req)
-		resp.cancelCtx()
-		resp.finishRequest()
-	}
+	}()
+	go func() {
+		defer wg.Done()
+		for {
+			resp, err := c.readRequest(ctx)
+			if err != nil {
+				return
+			}
+			requestCh <- resp
+		}
+	}()
+	wg.Wait()
 }

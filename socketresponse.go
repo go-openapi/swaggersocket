@@ -81,7 +81,8 @@ func (w *response) WriteHeader(code int) {
 }
 
 func (w *response) CloseNotify() <-chan bool {
-	return w.conn.closeNotificationCh
+	w.conn.closeHandlerCh = make(chan bool)
+	return w.conn.closeHandlerCh
 }
 
 func cloneHeader(h http.Header) http.Header {
@@ -125,6 +126,12 @@ func (w *response) Flush() {
 
 func (w *response) finishRequest() {
 	w.handlerDone.setTrue()
+
+	// if CloseNotify() was called in the handler
+	if w.conn.closeHandlerCh != nil {
+		close(w.conn.closeHandlerCh)
+		w.conn.closeHandlerCh = nil
+	}
 
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
@@ -271,12 +278,12 @@ func (cw *chunkWriter) flush() {
 	}
 	err := cw.writer.Close()
 	if err != nil {
-		log.Printf("Err: %s", err.Error())
+		log.Println("cannot flush")
 		return
 	}
 	w, err := cw.res.conn.conn.NextWriter(websocket.TextMessage)
 	if err != nil {
-		log.Printf("Err: %s", err.Error())
+		log.Println("cannot write to the connection")
 		return
 	}
 	cw.writer = w
@@ -287,7 +294,7 @@ func (cw *chunkWriter) finalflush() {
 		cw.writeHeader(nil)
 	}
 	if err := cw.writer.Close(); err != nil {
-		log.Printf("Err: %s", err.Error())
+		log.Printf("cannot flush")
 	}
 	cw.writer = nil
 }

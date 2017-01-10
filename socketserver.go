@@ -55,13 +55,13 @@ func (ss *WebsocketServer) manage() {
 		select {
 		case conn := <-ss.register:
 			if conn != nil {
+				log.Printf("registering connection (id: %s)", conn.id)
 				ss.connectionMap[conn.id] = conn
 			}
 
 		case conn := <-ss.unregister:
 			if conn != nil {
-				//what is conn.send
-				//close(conn.send)
+				log.Printf("unregistering connection (id: %s)", conn.id)
 				delete(ss.connectionMap, conn.id)
 			}
 		}
@@ -100,7 +100,6 @@ func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	log.Println("connection established")
 }
 
-//
 func (ss *WebsocketServer) Connection(id string) *SocketConnection {
 	return ss.connectionMap[id]
 }
