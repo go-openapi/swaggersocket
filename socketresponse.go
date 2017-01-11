@@ -240,7 +240,6 @@ var (
 func (cw *chunkWriter) Write(p []byte) (int, error) {
 	var n int
 	var err error
-	log.Printf("Writing %s", string(p))
 	if !cw.wroteHeader {
 		// based on p the headers can be deduced
 		cw.writeHeader(p)

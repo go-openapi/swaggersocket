@@ -1,7 +1,9 @@
 package restwebsocket
 
 import (
+	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -46,6 +48,10 @@ func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pong
 	return srvr
 }
 
+func (ss *WebsocketServer) activeConnectionCount() int {
+	return len(ss.connectionMap)
+}
+
 func (ss *WebsocketServer) Manage() {
 	go ss.manage()
 }
@@ -55,13 +61,13 @@ func (ss *WebsocketServer) manage() {
 		select {
 		case conn := <-ss.register:
 			if conn != nil {
-				log.Printf("registering connection (id: %s)", conn.id)
+				log.Printf("registering connection (id: %s) in the socketserver connection map", conn.id)
 				ss.connectionMap[conn.id] = conn
 			}
 
 		case conn := <-ss.unregister:
 			if conn != nil {
-				log.Printf("unregistering connection (id: %s)", conn.id)
+				log.Printf("unregistering connection (id: %s) in the socketserver connection map", conn.id)
 				delete(ss.connectionMap, conn.id)
 			}
 		}
@@ -79,7 +85,7 @@ func (ss *WebsocketServer) Accept() (<-chan *SocketConnection, error) {
 }
 
 func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("received request")
+	log.Println("connection request received")
 	c, err := ss.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Print("upgrade:", err)
@@ -87,7 +93,9 @@ func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	}
 	// ToDo Handshake to get connection id
 
-	conn := NewSocketConnection(c, "dummyID", ss.keepAlive, ss.pingHdlr, ss.pongHdlr, ss.appData)
+	randomInt := rand.Intn(100)
+	id := fmt.Sprintf("dummyID%d", randomInt)
+	conn := NewSocketConnection(c, id, ss.keepAlive, ss.pingHdlr, ss.pongHdlr, ss.appData)
 	conn.setType(ServerSide)
 	conn.setSocketServer(ss)
 	ss.register <- conn

@@ -154,7 +154,6 @@ func (c *SocketConnection) Close() error {
 		c.once.Do(func() { c.closeNotificationCh <- true })
 	}
 	if c.heartBeat != nil {
-		log.Println("Stopping the heartbeat")
 		c.heartBeat.stop()
 	}
 

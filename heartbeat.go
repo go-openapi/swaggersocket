@@ -2,6 +2,7 @@ package restwebsocket
 
 import (
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -22,9 +23,10 @@ type heartbeat struct {
 }
 
 func newHeartBeat(c *SocketConnection, period, pingwritewait time.Duration, appData []byte) *heartbeat {
+	r := 1 + rand.Intn(5)
 	return &heartbeat{
 		sockconn:      c,
-		period:        period,
+		period:        time.Duration(r) * time.Second,
 		pingWriteWait: pingwritewait,
 		pingMsg:       appData,
 		stopCh:        make(chan chan struct{}),
@@ -41,10 +43,20 @@ func (hb *heartbeat) start() {
 			select {
 			// extra caution is required when both channels have values AT THE SAME TIME
 			case <-ticker.C:
+				if hb.sockconn.connType == ServerSide {
+					log.Printf("heartbeat: sending ping message at server side")
+				} else {
+					log.Printf("heartbeat: sending ping message at client side")
+				}
 				// write a websocket ping control message. WriteControl is safe to use concurrently
 				if err := hb.sockconn.conn.WriteControl(websocket.PingMessage, hb.pingMsg, time.Now().Add(hb.pingWriteWait)); err != nil {
 					if err != websocket.ErrCloseSent {
-						log.Printf("heartbeat: connection failure detected")
+						if hb.sockconn.connType == ServerSide {
+							log.Printf("heartbeat: connection failure detected at socketserver side")
+						} else {
+							log.Printf("heartbeat: connection failure detected at socketclient side")
+						}
+
 						// this has to be its own goroutine
 						go hb.sockconn.handleFailure()
 					}
