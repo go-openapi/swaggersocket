@@ -3,8 +3,10 @@
 package restwebsocket
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -21,6 +23,7 @@ var (
 	socketserver *WebsocketServer
 	socketclient *WebsocketClient
 	done         chan struct{}
+	debugStr     string
 )
 
 func simpleHandler(rw http.ResponseWriter, req *http.Request) {
@@ -35,7 +38,7 @@ func chunkedHandler(rw http.ResponseWriter, req *http.Request) {
 	for i := 1; i <= 10; i++ {
 		fmt.Fprintf(rw, "Chunk #%d\n", i)
 		flusher.Flush()
-		time.Sleep(1 * time.Second)
+		time.Sleep(250 * time.Millisecond)
 	}
 }
 
@@ -49,12 +52,13 @@ func closeNotifiedChunkedHandler(rw http.ResponseWriter, req *http.Request) {
 
 		select {
 		case <-notify:
+			debugStr = "Handler was notified of the client close"
 			log.Println("connection closed...exiting handler")
 			return
 		default:
 			fmt.Fprintf(rw, "Chunk #%d\n", i)
 			flusher.Flush()
-			time.Sleep(1 * time.Second)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}
 }
@@ -119,7 +123,137 @@ func TestSimpleHandlerSuccess(t *testing.T) {
 	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
 }
 
-func TestSimpleHandlerFailureClientSide(t *testing.T) {
+func TestChunkedHandlerSuccess(t *testing.T) {
+	err := socketclient.Connect()
+	assert.Nil(t, err)
+	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/chunked/", nil)
+	for i := 0; i < 2; i++ {
+		err := socketclient.Connection().WriteRequest(req)
+		assert.Nil(t, err)
+		resp, err := socketclient.Connection().ReadResponse()
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+		readbuf := make([]byte, 4096)
+		count := 1
+		for {
+			//line, err := reader.ReadBytes('\n')
+			n, err := resp.Body.Read(readbuf)
+			if n > 0 {
+				assert.Equal(t, fmt.Sprintf("Chunk #%d\n", count), string(bytes.Trim(readbuf, "\x00")))
+				count++
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				panic(err)
+			}
+		}
+		resp.Body.Close()
+	}
+	beforeCount := socketserver.activeConnectionCount()
+	socketclient.Connection().Close()
+	// give some time for the server to unregister connection
+	// ToDo find a better way to do this
+	time.Sleep(1 * time.Second)
+	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
+}
+
+func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
+	err := socketclient.Connect()
+	assert.Nil(t, err)
+	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
+	for i := 0; i < 2; i++ {
+		err := socketclient.Connection().WriteRequest(req)
+		assert.Nil(t, err)
+		resp, err := socketclient.Connection().ReadResponse()
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+		readbuf := make([]byte, 4096)
+		count := 1
+		for {
+			//line, err := reader.ReadBytes('\n')
+			n, err := resp.Body.Read(readbuf)
+			if n > 0 {
+				assert.Equal(t, fmt.Sprintf("Chunk #%d\n", count), string(bytes.Trim(readbuf, "\x00")))
+				count++
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				panic(err)
+			}
+		}
+		resp.Body.Close()
+	}
+	beforeCount := socketserver.activeConnectionCount()
+	socketclient.Connection().Close()
+	// give some time for the server to unregister connection
+	// ToDo find a better way to do this
+	time.Sleep(1 * time.Second)
+	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
+}
+
+func TestCloseNotifiedChunkedFailureClientSide(t *testing.T) {
+	err := socketclient.Connect()
+	// disabling failure detection at the socketclient side
+	socketclient.Connection().heartBeat.stop()
+	assert.Nil(t, err)
+	debugStr = "whatever"
+	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
+	quit := false
+	var count int
+	for i := 0; i < 2; i++ {
+		err := socketclient.Connection().WriteRequest(req)
+		assert.Nil(t, err)
+		resp, err := socketclient.Connection().ReadResponse()
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+		readbuf := make([]byte, 4096)
+		count = 1
+		for {
+			//line, err := reader.ReadBytes('\n')
+			n, err := resp.Body.Read(readbuf)
+			defer resp.Body.Close()
+			if count == 3 {
+				socketclient.conn.conn.UnderlyingConn().Close()
+				quit = true
+				break
+			}
+			if n > 0 {
+				assert.Equal(t, fmt.Sprintf("Chunk #%d\n", count), string(bytes.Trim(readbuf, "\x00")))
+				count++
+			}
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				panic(err)
+			}
+		}
+		if quit == true {
+			break
+		}
+	}
+	success := make(chan bool, 1)
+	go func() {
+		for {
+			if debugStr == "Handler was notified of the client close" {
+				success <- true
+				return
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}()
+	select {
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out")
+	case <-success:
+	}
+}
+
+func TestGeneralFailureClientSide(t *testing.T) {
 	err := socketclient.Connect()
 	// disabling failure detection at the socketclient side
 	socketclient.Connection().heartBeat.stop()
@@ -145,7 +279,7 @@ func TestSimpleHandlerFailureClientSide(t *testing.T) {
 	}
 }
 
-func TestSimpleHandlerFailureServerSide(t *testing.T) {
+func TestGeneralFailureServerSide(t *testing.T) {
 	time.Sleep(3 * time.Second)
 	err := socketclient.Connect()
 	// disabling failure detection at the socketclient side
