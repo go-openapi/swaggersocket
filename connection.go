@@ -123,7 +123,7 @@ func (c *SocketConnection) handleFailure() {
 // cleanup connection prepares for closing the connection. It acts as the close handler for the websocket connection
 func (c *SocketConnection) cleanupConnection() {
 	// the sequence of operations is very imprtant
-	defer log.Printf("Websocket connection closed")
+	defer log.Printf("cleaned up connection")
 	if c.closeHandlerCh != nil {
 		c.closeHandlerCh <- true
 	}
@@ -298,6 +298,7 @@ func (c *SocketConnection) serve(ctx context.Context, hdlr http.Handler) {
 				hdlr.ServeHTTP(resp, resp.req)
 				resp.cancelCtx()
 				resp.finishRequest()
+				requestCh <- nil
 			}
 		}
 	}()
@@ -309,6 +310,7 @@ func (c *SocketConnection) serve(ctx context.Context, hdlr http.Handler) {
 				return
 			}
 			requestCh <- resp
+			<-requestCh
 		}
 	}()
 	wg.Wait()

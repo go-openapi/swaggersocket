@@ -3,12 +3,14 @@ package restwebsocket
 import (
 	"log"
 	"net/url"
+	"sync"
 
 	"github.com/cenkalti/backoff"
 	"github.com/gorilla/websocket"
 )
 
 type WebsocketClient struct {
+	connMutex       sync.Mutex
 	conn            *SocketConnection
 	addr            *url.URL
 	handlerLoop     func()
@@ -29,6 +31,7 @@ func NewWebSocketClient(u *url.URL, keepAlive bool, pingHdlr, pongHdlr func(stri
 	}
 }
 
+// TODO refactor connect to return the connection instead of just an error. Creating a connection as a side effect is a bad idea
 func (sc *WebsocketClient) Connect() error {
 	operation := func() error {
 		conn, _, err := websocket.DefaultDialer.Dial(sc.addr.String(), nil)
@@ -46,7 +49,9 @@ func (sc *WebsocketClient) Connect() error {
 		c := NewSocketConnection(conn, "dummyConnectionId", sc.keepAlive, sc.pingHdlr, sc.pongHdlr, sc.appData)
 		c.setSocketClient(sc)
 		c.setType(ClientSide)
+		sc.connMutex.Lock()
 		sc.conn = c
+		sc.connMutex.Unlock()
 		// start the heartbeat protocol
 		if c.HeartBeat() != nil {
 			c.HeartBeat().start()
@@ -64,5 +69,8 @@ func (sc *WebsocketClient) Connect() error {
 }
 
 func (sc *WebsocketClient) Connection() *SocketConnection {
-	return sc.conn
+	sc.connMutex.Lock()
+	c := sc.conn
+	sc.connMutex.Unlock()
+	return c
 }

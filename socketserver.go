@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
@@ -12,6 +13,7 @@ import (
 type WebsocketServer struct {
 	upgrader           websocket.Upgrader
 	addr               string
+	connMapLock        sync.Mutex
 	connectionMap      map[string]*SocketConnection
 	keepAlive          bool
 	pingHdlr, pongHdlr func(string) error
@@ -49,7 +51,10 @@ func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pong
 }
 
 func (ss *WebsocketServer) activeConnectionCount() int {
-	return len(ss.connectionMap)
+	ss.connMapLock.Lock()
+	size := len(ss.connectionMap)
+	ss.connMapLock.Unlock()
+	return size
 }
 
 func (ss *WebsocketServer) Manage() {
@@ -62,13 +67,17 @@ func (ss *WebsocketServer) manage() {
 		case conn := <-ss.register:
 			if conn != nil {
 				log.Printf("registering connection (id: %s) in the socketserver connection map", conn.id)
+				ss.connMapLock.Lock()
 				ss.connectionMap[conn.id] = conn
+				ss.connMapLock.Unlock()
 			}
 
 		case conn := <-ss.unregister:
 			if conn != nil {
 				log.Printf("unregistering connection (id: %s) in the socketserver connection map", conn.id)
+				ss.connMapLock.Lock()
 				delete(ss.connectionMap, conn.id)
+				ss.connMapLock.Unlock()
 			}
 		}
 
