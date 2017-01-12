@@ -250,7 +250,6 @@ func TestGeneralFailureClientSide(t *testing.T) {
 	assert.Nil(t, err)
 	// force close the underlying network connection
 	beforeCount := socketserver.activeConnectionCount()
-	log.Printf("before count is %d", beforeCount)
 	socketclient.conn.conn.UnderlyingConn().Close()
 	// the server is expected to detect that and remove the connection from the connection map
 	success := make(chan bool, 1)
@@ -272,14 +271,11 @@ func TestGeneralFailureClientSide(t *testing.T) {
 }
 
 func TestGeneralFailureServerSide(t *testing.T) {
-	time.Sleep(3 * time.Second)
 	err := socketclient.Connect()
 	// disabling failure detection at the socketclient side
 	assert.Nil(t, err)
 	// force close the underlying network connection
-	//beforeConn := socketclient.Connection()
 	socketclient.conn.conn.UnderlyingConn().Close()
-	time.Sleep(10 * time.Second)
 	// client should try to reconnect with backoff
 	success := make(chan bool, 1)
 	go func() {

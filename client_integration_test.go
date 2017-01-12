@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -24,7 +25,7 @@ var (
 	socketserver *WebsocketServer
 	socketclient *WebsocketClient
 	done         chan struct{}
-	debugStr     string
+	debugCh      = make(chan string)
 )
 
 func simpleHandler(rw http.ResponseWriter, req *http.Request) {
@@ -53,7 +54,7 @@ func closeNotifiedChunkedHandler(rw http.ResponseWriter, req *http.Request) {
 
 		select {
 		case <-notify:
-			debugStr = "Handler was notified of the client close"
+			debugCh <- "Handler was notified of the client close"
 			log.Println("connection closed...exiting handler")
 			return
 		default:
@@ -110,7 +111,7 @@ func connectClient() {
 func TestSimpleHandlerSuccess(t *testing.T) {
 	connectClient()
 	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/simple/", nil)
-	assert.Equal(t, 1, len(socketserver.connectionMap))
+	assert.Equal(t, 1, socketserver.activeConnectionCount())
 	var c *SocketConnection
 	for _, v := range socketserver.connectionMap {
 		c = v
@@ -138,7 +139,7 @@ func TestSimpleHandlerSuccess(t *testing.T) {
 func TestChunkedHandlerSuccess(t *testing.T) {
 	connectClient()
 	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/chunked/", nil)
-	assert.Equal(t, 1, len(socketserver.connectionMap))
+	assert.Equal(t, 1, socketserver.activeConnectionCount())
 	var c *SocketConnection
 	for _, v := range socketserver.connectionMap {
 		c = v
@@ -181,7 +182,7 @@ func TestChunkedHandlerSuccess(t *testing.T) {
 func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 	connectClient()
 	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
-	assert.Equal(t, 1, len(socketserver.connectionMap))
+	assert.Equal(t, 1, socketserver.activeConnectionCount())
 	var c *SocketConnection
 	for _, v := range socketserver.connectionMap {
 		c = v
@@ -223,14 +224,13 @@ func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 func TestCloseNotifiedChunkedFailureServerSide(t *testing.T) {
 	connectClient()
 	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
-	assert.Equal(t, 1, len(socketserver.connectionMap))
+	assert.Equal(t, 1, socketserver.activeConnectionCount())
 	var c *SocketConnection
 	for _, v := range socketserver.connectionMap {
 		c = v
 		break
 	}
 	assert.NotNil(t, c)
-	debugStr = "whatever"
 	quit := false
 	var count int
 	for i := 0; i < 2; i++ {
@@ -265,20 +265,11 @@ func TestCloseNotifiedChunkedFailureServerSide(t *testing.T) {
 			break
 		}
 	}
-	success := make(chan bool, 1)
-	go func() {
-		for {
-			if debugStr == "Handler was notified of the client close" {
-				success <- true
-				return
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}()
 	select {
 	case <-time.After(30 * time.Second):
 		t.Fatal("timed out")
-	case <-success:
+	case s := <-debugCh:
+		assert.Equal(t, "Handler was notified of the client close", s)
 	}
 }
 
@@ -308,29 +299,24 @@ func TestGeneralFailureClientSide(t *testing.T) {
 	}
 }
 
-// func TestGeneralFailureServerSide(t *testing.T) {
-// 	time.Sleep(3 * time.Second)
-// 	err := socketclient.Connect()
-// 	// disabling failure detection at the socketclient side
-// 	assert.Nil(t, err)
-// 	// force close the underlying network connection
-// 	//beforeConn := socketclient.Connection()
-// 	socketclient.conn.conn.UnderlyingConn().Close()
-// 	time.Sleep(10 * time.Second)
-// 	// client should try to reconnect with backoff
-// 	success := make(chan bool, 1)
-// 	go func() {
-// 		for {
-// 			if err := socketclient.Connection().conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err == nil {
-// 				success <- true
-// 				return
-// 			}
-// 			time.Sleep(1 * time.Second)
-// 		}
-// 	}()
-// 	select {
-// 	case <-time.After(20 * time.Second):
-// 		t.Fatal("timed out")
-// 	case <-success:
-// 	}
-// }
+func TestGeneralFailureServerSide(t *testing.T) {
+	connectClient()
+	socketclient.conn.conn.UnderlyingConn().Close()
+	//time.Sleep(10 * time.Second)
+	// client should try to reconnect with backoff
+	success := make(chan bool, 1)
+	go func() {
+		for {
+			if err := socketclient.Connection().conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err == nil {
+				success <- true
+				return
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}()
+	select {
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out")
+	case <-success:
+	}
+}
