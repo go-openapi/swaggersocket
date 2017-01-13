@@ -115,12 +115,12 @@ func TestSimpleHandlerSuccess(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "Hello, Dolores!", string(b))
 	}
-	beforeCount := socketserver.activeConnectionCount()
+	connID := socketclient.Connection().ID()
 	socketclient.Connection().Close()
 	// give some time for the server to unregister connection
 	// ToDo find a better way to do this
 	time.Sleep(1 * time.Second)
-	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
+	assert.Nil(t, socketserver.Connection(connID))
 }
 
 func TestChunkedHandlerSuccess(t *testing.T) {
@@ -151,12 +151,12 @@ func TestChunkedHandlerSuccess(t *testing.T) {
 		}
 		resp.Body.Close()
 	}
-	beforeCount := socketserver.activeConnectionCount()
+	connID := socketclient.Connection().ID()
 	socketclient.Connection().Close()
 	// give some time for the server to unregister connection
 	// ToDo find a better way to do this
 	time.Sleep(1 * time.Second)
-	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
+	assert.Nil(t, socketserver.Connection(connID))
 }
 
 func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
@@ -187,12 +187,12 @@ func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 		}
 		resp.Body.Close()
 	}
-	beforeCount := socketserver.activeConnectionCount()
+	connID := socketclient.Connection().ID()
 	socketclient.Connection().Close()
 	// give some time for the server to unregister connection
 	// ToDo find a better way to do this
 	time.Sleep(1 * time.Second)
-	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
+	assert.Nil(t, socketserver.Connection(connID))
 }
 
 func TestCloseNotifiedChunkedFailureClientSide(t *testing.T) {
@@ -246,16 +246,16 @@ func TestCloseNotifiedChunkedFailureClientSide(t *testing.T) {
 func TestGeneralFailureClientSide(t *testing.T) {
 	err := socketclient.Connect()
 	// disabling failure detection at the socketclient side
+	connectionId := socketclient.Connection().ID()
 	socketclient.Connection().heartBeat.stop()
 	assert.Nil(t, err)
 	// force close the underlying network connection
-	beforeCount := socketserver.activeConnectionCount()
 	socketclient.conn.conn.UnderlyingConn().Close()
 	// the server is expected to detect that and remove the connection from the connection map
 	success := make(chan bool, 1)
 	go func() {
 		for {
-			if socketserver.activeConnectionCount() == beforeCount-1 {
+			if socketserver.Connection(connectionId) == nil {
 				success <- true
 				return
 			}

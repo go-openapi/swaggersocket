@@ -110,13 +110,9 @@ func connectClient() {
 
 func TestSimpleHandlerSuccess(t *testing.T) {
 	connectClient()
+	id := socketclient.Connection().ID()
 	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/simple/", nil)
-	assert.Equal(t, 1, socketserver.activeConnectionCount())
-	var c *SocketConnection
-	for _, v := range socketserver.connectionMap {
-		c = v
-		break
-	}
+	c := socketserver.Connection(id)
 	assert.NotNil(t, c)
 	for i := 0; i < 4; i++ {
 		err := c.WriteRequest(req)
@@ -130,21 +126,17 @@ func TestSimpleHandlerSuccess(t *testing.T) {
 		log.Printf(string(b))
 		assert.Equal(t, "Hello, Dolores!", string(b))
 	}
-	beforeCount := socketserver.activeConnectionCount()
+	connID := c.ID()
 	c.Close()
 	time.Sleep(1 * time.Second)
-	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
+	assert.Nil(t, socketserver.Connection(connID))
 }
 
 func TestChunkedHandlerSuccess(t *testing.T) {
 	connectClient()
+	id := socketclient.Connection().ID()
 	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/chunked/", nil)
-	assert.Equal(t, 1, socketserver.activeConnectionCount())
-	var c *SocketConnection
-	for _, v := range socketserver.connectionMap {
-		c = v
-		break
-	}
+	c := socketserver.Connection(id)
 	assert.NotNil(t, c)
 	for i := 0; i < 2; i++ {
 		err := c.WriteRequest(req)
@@ -171,23 +163,17 @@ func TestChunkedHandlerSuccess(t *testing.T) {
 		}
 		resp.Body.Close()
 	}
-	beforeCount := socketserver.activeConnectionCount()
+	connID := c.ID()
 	c.Close()
-	// give some time for the server to unregister connection
-	// ToDo find a better way to do this
 	time.Sleep(1 * time.Second)
-	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
+	assert.Nil(t, socketserver.Connection(connID))
 }
 
 func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 	connectClient()
+	id := socketclient.Connection().ID()
 	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
-	assert.Equal(t, 1, socketserver.activeConnectionCount())
-	var c *SocketConnection
-	for _, v := range socketserver.connectionMap {
-		c = v
-		break
-	}
+	c := socketserver.Connection(id)
 	assert.NotNil(t, c)
 	for i := 0; i < 2; i++ {
 		err := c.WriteRequest(req)
@@ -213,23 +199,17 @@ func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 		}
 		resp.Body.Close()
 	}
-	beforeCount := socketserver.activeConnectionCount()
+	connID := c.ID()
 	c.Close()
-	// give some time for the server to unregister connection
-	// ToDo find a better way to do this
 	time.Sleep(1 * time.Second)
-	assert.Equal(t, beforeCount-1, socketserver.activeConnectionCount())
+	assert.Nil(t, socketserver.Connection(connID))
 }
 
 func TestCloseNotifiedChunkedFailureServerSide(t *testing.T) {
 	connectClient()
+	id := socketclient.Connection().ID()
 	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
-	assert.Equal(t, 1, socketserver.activeConnectionCount())
-	var c *SocketConnection
-	for _, v := range socketserver.connectionMap {
-		c = v
-		break
-	}
+	c := socketserver.Connection(id)
 	assert.NotNil(t, c)
 	quit := false
 	var count int
@@ -279,13 +259,13 @@ func TestGeneralFailureClientSide(t *testing.T) {
 	// disabling failure detection at the socketclient side
 	socketclient.Connection().heartBeat.stop()
 	// force close the underlying network connection
-	beforeCount := socketserver.activeConnectionCount()
+	connectionId := socketclient.Connection().ID()
 	socketclient.conn.conn.UnderlyingConn().Close()
 	// the server is expected to detect that and remove the connection from the connection map
 	success := make(chan bool, 1)
 	go func() {
 		for {
-			if socketserver.activeConnectionCount() == beforeCount-1 {
+			if socketserver.Connection(connectionId) == nil {
 				success <- true
 				return
 			}

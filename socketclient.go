@@ -1,6 +1,7 @@
 package restwebsocket
 
 import (
+	"errors"
 	"log"
 	"net/url"
 	"sync"
@@ -19,6 +20,7 @@ type WebsocketClient struct {
 	pingHdlr        func(string) error
 	pongHdlr        func(string) error
 	appData         []byte
+	meta            interface{}
 }
 
 func NewWebSocketClient(u *url.URL, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketClient {
@@ -40,13 +42,13 @@ func (sc *WebsocketClient) Connect() error {
 			return err
 		}
 		// Connection established. Start Handshake
-		// TODO HANDSHAKE
-		// if successful handshake, set the reliable connection
-		//ToDo Handshake to get ID
+		connectionID, err := sc.startClientHandshake(conn, "dummy metadata")
+		if err != nil {
+			// handle error and close the connection
+			panic(err)
+		}
 
-		//////
-
-		c := NewSocketConnection(conn, "dummyConnectionId", sc.keepAlive, sc.pingHdlr, sc.pongHdlr, sc.appData)
+		c := NewSocketConnection(conn, connectionID, sc.keepAlive, sc.pingHdlr, sc.pongHdlr, sc.appData)
 		c.setSocketClient(sc)
 		c.setType(ClientSide)
 		sc.connMutex.Lock()
@@ -66,6 +68,29 @@ func (sc *WebsocketClient) Connect() error {
 	}
 
 	return nil
+}
+
+func (sc *WebsocketClient) startClientHandshake(c *websocket.Conn, meta interface{}) (string, error) {
+	if err := c.WriteJSON(&clientHandshakeMetaData{
+		Type: clientHandshakeMetaDataFrame,
+		Meta: meta,
+	}); err != nil {
+		return "", err
+	}
+	connIDFrame := &serverHandshakeConnectionID{}
+	if err := c.ReadJSON(connIDFrame); err != nil {
+		return "", err
+	}
+	if connIDFrame.Type != serverHandshakeConnectionIDFrame {
+		return "", errors.New("handshake error")
+	}
+	connID := connIDFrame.ConnectionID
+	if err := c.WriteJSON(&clientHandshakeAck{
+		Type: clientHandshakeAckFrame,
+	}); err != nil {
+		return "", err
+	}
+	return connID, nil
 }
 
 func (sc *WebsocketClient) Connection() *SocketConnection {
