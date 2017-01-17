@@ -86,6 +86,9 @@ func (ss *WebsocketServer) manage() {
 				ss.connMapLock.Lock()
 				delete(ss.connectionMap, conn.id)
 				ss.connMapLock.Unlock()
+				ss.connMetaLock.Lock()
+				delete(ss.connectionMetaData, conn.id)
+				ss.connMetaLock.Unlock()
 			}
 		}
 
