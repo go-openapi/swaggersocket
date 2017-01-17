@@ -3,6 +3,7 @@ package restwebsocket
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -172,6 +173,7 @@ func (c *SocketConnection) Close() error {
 	return nil
 }
 
+// ID returns the connection id
 func (c *SocketConnection) ID() string {
 	return c.id
 }
@@ -180,6 +182,9 @@ func (c *SocketConnection) ID() string {
 func (c *SocketConnection) WriteRequest(req *http.Request) error {
 	var err error
 	var w io.WriteCloser
+	if req.Header.Get("X-Correlation-Id") == "" {
+		return errors.New("X-Correlation-Id header must be present")
+	}
 	if w, err = c.conn.NextWriter(websocket.TextMessage); err == nil {
 		defer w.Close()
 		if err = req.Write(w); err == nil {

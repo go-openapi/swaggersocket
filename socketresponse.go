@@ -188,6 +188,7 @@ type extraHeader struct {
 	transferEncoding string
 	date             []byte // written if not nil
 	contentLength    []byte // written if not nil
+	xCorrelationID   string
 }
 
 // Sorted the same as extraHeader.Write's loop.
@@ -195,6 +196,7 @@ var extraHeaderKeys = [][]byte{
 	[]byte("Content-Type"),
 	[]byte("Connection"),
 	[]byte("Transfer-Encoding"),
+	[]byte("X-Correlation-Id"),
 }
 
 var (
@@ -213,7 +215,7 @@ func (h extraHeader) Write(w io.Writer) {
 		w.Write(h.contentLength)
 		w.Write(crlf)
 	}
-	for i, v := range []string{h.contentType, h.connection, h.transferEncoding} {
+	for i, v := range []string{h.contentType, h.connection, h.transferEncoding, h.xCorrelationID} {
 		if v != "" {
 			w.Write(extraHeaderKeys[i])
 			w.Write(colonSpace)
@@ -357,6 +359,9 @@ func (cw *chunkWriter) writeHeader(p []byte) {
 		trailers = true
 		foreachHeaderElement(v, cw.res.declareTrailer)
 	}
+
+	correlationID := cw.res.req.Header.Get("X-Correlation-Id")
+	setHeader.xCorrelationID = correlationID
 
 	te := header.Get("Transfer-Encoding")
 	hasTE := te != ""

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -103,13 +104,16 @@ func TestMain(m *testing.M) {
 func TestSimpleHandlerSuccess(t *testing.T) {
 	err := socketclient.Connect()
 	assert.Nil(t, err)
-	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/simple/", nil)
 	for i := 0; i < 4; i++ {
+		req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/simple/", nil)
+		cid := uuid.NewV4().String()
+		req.Header.Set("X-Correlation-Id", cid)
 		err := socketclient.Connection().WriteRequest(req)
 		assert.Nil(t, err)
 		resp, err := socketclient.Connection().ReadResponse()
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
+		assert.Equal(t, cid, resp.Header.Get("X-Correlation-Id"))
 		b, err := ioutil.ReadAll(resp.Body)
 		defer resp.Body.Close()
 		assert.Nil(t, err)
@@ -126,13 +130,16 @@ func TestSimpleHandlerSuccess(t *testing.T) {
 func TestChunkedHandlerSuccess(t *testing.T) {
 	err := socketclient.Connect()
 	assert.Nil(t, err)
-	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/chunked/", nil)
 	for i := 0; i < 2; i++ {
+		req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/chunked/", nil)
+		cid := uuid.NewV4().String()
+		req.Header.Set("X-Correlation-Id", cid)
 		err := socketclient.Connection().WriteRequest(req)
 		assert.Nil(t, err)
 		resp, err := socketclient.Connection().ReadResponse()
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
+		assert.Equal(t, cid, resp.Header.Get("X-Correlation-Id"))
 		readbuf := make([]byte, 4096)
 		count := 1
 		for {
@@ -162,13 +169,16 @@ func TestChunkedHandlerSuccess(t *testing.T) {
 func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 	err := socketclient.Connect()
 	assert.Nil(t, err)
-	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
 	for i := 0; i < 2; i++ {
+		req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
+		cid := uuid.NewV4().String()
+		req.Header.Set("X-Correlation-Id", cid)
 		err := socketclient.Connection().WriteRequest(req)
 		assert.Nil(t, err)
 		resp, err := socketclient.Connection().ReadResponse()
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
+		assert.Equal(t, cid, resp.Header.Get("X-Correlation-Id"))
 		readbuf := make([]byte, 4096)
 		count := 1
 		for {
@@ -200,15 +210,18 @@ func TestCloseNotifiedChunkedFailureClientSide(t *testing.T) {
 	// disabling failure detection at the socketclient side
 	socketclient.Connection().heartBeat.stop()
 	assert.Nil(t, err)
-	req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
 	quit := false
 	var count int
 	for i := 0; i < 2; i++ {
+		req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
+		cid := uuid.NewV4().String()
+		req.Header.Set("X-Correlation-Id", cid)
 		err := socketclient.Connection().WriteRequest(req)
 		assert.Nil(t, err)
 		resp, err := socketclient.Connection().ReadResponse()
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
+		assert.Equal(t, cid, resp.Header.Get("X-Correlation-Id"))
 		readbuf := make([]byte, 4096)
 		count = 1
 		for {
