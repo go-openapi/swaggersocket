@@ -68,9 +68,9 @@ func closeNotifiedChunkedHandler(rw http.ResponseWriter, req *http.Request) {
 
 func startSocketServer() (*WebsocketServer, chan struct{}) {
 	wsServer := NewWebSocketServer(":9090", 100, true, nil, nil, nil)
-	ch, err := wsServer.Accept()
+	ch, err := wsServer.EventStream()
 	if err != nil {
-		log.Println("accept: ", err)
+		log.Println("event stream: ", err)
 	}
 	m := http.NewServeMux()
 	m.HandleFunc("/simple/", simpleHandler)
@@ -82,8 +82,12 @@ func startSocketServer() (*WebsocketServer, chan struct{}) {
 		defer log.Printf("closing socketserver")
 		for {
 			select {
-			case conn := <-ch:
-				conn.Serve(context.Background(), m)
+			case event := <-ch:
+				if event.EventType == ConnectionReceived {
+					conn := wsServer.connectionFromConnID(event.ConnectionId)
+					conn.Serve(context.Background(), m)
+				}
+
 			case <-done:
 				return
 			}
@@ -124,7 +128,7 @@ func TestSimpleHandlerSuccess(t *testing.T) {
 	// give some time for the server to unregister connection
 	// ToDo find a better way to do this
 	time.Sleep(1 * time.Second)
-	assert.Nil(t, socketserver.Connection(connID))
+	assert.Nil(t, socketserver.connectionFromConnID(connID))
 }
 
 func TestChunkedHandlerSuccess(t *testing.T) {
@@ -163,7 +167,7 @@ func TestChunkedHandlerSuccess(t *testing.T) {
 	// give some time for the server to unregister connection
 	// ToDo find a better way to do this
 	time.Sleep(1 * time.Second)
-	assert.Nil(t, socketserver.Connection(connID))
+	assert.Nil(t, socketserver.connectionFromConnID(connID))
 }
 
 func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
@@ -202,7 +206,7 @@ func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 	// give some time for the server to unregister connection
 	// ToDo find a better way to do this
 	time.Sleep(1 * time.Second)
-	assert.Nil(t, socketserver.Connection(connID))
+	assert.Nil(t, socketserver.connectionFromConnID(connID))
 }
 
 func TestCloseNotifiedChunkedFailureClientSide(t *testing.T) {
@@ -268,7 +272,7 @@ func TestGeneralFailureClientSide(t *testing.T) {
 	success := make(chan bool, 1)
 	go func() {
 		for {
-			if socketserver.Connection(connectionId) == nil {
+			if socketserver.connectionFromConnID(connectionId) == nil {
 				success <- true
 				return
 			}

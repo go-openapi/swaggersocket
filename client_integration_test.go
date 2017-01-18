@@ -68,7 +68,7 @@ func closeNotifiedChunkedHandler(rw http.ResponseWriter, req *http.Request) {
 
 func startSocketServer() (*WebsocketServer, chan struct{}) {
 	wsServer := NewWebSocketServer(":9090", 100, true, nil, nil, nil)
-	ch, err := wsServer.Accept()
+	ch, err := wsServer.EventStream()
 	if err != nil {
 		log.Println("accept: ", err)
 	}
@@ -78,8 +78,8 @@ func startSocketServer() (*WebsocketServer, chan struct{}) {
 		defer log.Printf("closing socketserver")
 		for {
 			select {
-			case <-ch:
-				log.Println("socket server received connection")
+			case evt := <-ch:
+				log.Printf("Connection Event Recieved: %s", evt.EventType.String())
 			case <-done:
 				return
 			}
@@ -112,7 +112,7 @@ func connectClient() {
 func TestSimpleHandlerSuccess(t *testing.T) {
 	connectClient()
 	id := socketclient.Connection().ID()
-	c := socketserver.Connection(id)
+	c := socketserver.connectionFromConnID(id)
 	assert.NotNil(t, c)
 	for i := 0; i < 4; i++ {
 		req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/simple/", nil)
@@ -133,13 +133,13 @@ func TestSimpleHandlerSuccess(t *testing.T) {
 	connID := c.ID()
 	c.Close()
 	time.Sleep(1 * time.Second)
-	assert.Nil(t, socketserver.Connection(connID))
+	assert.Nil(t, socketserver.connectionFromConnID(connID))
 }
 
 func TestChunkedHandlerSuccess(t *testing.T) {
 	connectClient()
 	id := socketclient.Connection().ID()
-	c := socketserver.Connection(id)
+	c := socketserver.connectionFromConnID(id)
 	assert.NotNil(t, c)
 	for i := 0; i < 2; i++ {
 		req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/chunked/", nil)
@@ -173,13 +173,13 @@ func TestChunkedHandlerSuccess(t *testing.T) {
 	connID := c.ID()
 	c.Close()
 	time.Sleep(1 * time.Second)
-	assert.Nil(t, socketserver.Connection(connID))
+	assert.Nil(t, socketserver.connectionFromConnID(connID))
 }
 
 func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 	connectClient()
 	id := socketclient.Connection().ID()
-	c := socketserver.Connection(id)
+	c := socketserver.connectionFromConnID(id)
 	assert.NotNil(t, c)
 	for i := 0; i < 2; i++ {
 		req, _ := http.NewRequest(http.MethodGet, "ws://localhost:9090/closenotifiedchunked/", nil)
@@ -212,13 +212,13 @@ func TestCloseNotifiedChunkedHandlerSuccess(t *testing.T) {
 	connID := c.ID()
 	c.Close()
 	time.Sleep(1 * time.Second)
-	assert.Nil(t, socketserver.Connection(connID))
+	assert.Nil(t, socketserver.connectionFromConnID(connID))
 }
 
 func TestCloseNotifiedChunkedFailureServerSide(t *testing.T) {
 	connectClient()
 	id := socketclient.Connection().ID()
-	c := socketserver.Connection(id)
+	c := socketserver.connectionFromConnID(id)
 	assert.NotNil(t, c)
 	quit := false
 	var count int
@@ -278,7 +278,7 @@ func TestGeneralFailureClientSide(t *testing.T) {
 	success := make(chan bool, 1)
 	go func() {
 		for {
-			if socketserver.Connection(connectionId) == nil {
+			if socketserver.connectionFromConnID(connectionId) == nil {
 				success <- true
 				return
 			}

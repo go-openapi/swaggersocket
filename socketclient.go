@@ -23,6 +23,7 @@ type WebsocketClient struct {
 	meta            interface{}
 }
 
+// NewWebSocketClient creates a new websocketcient
 func NewWebSocketClient(u *url.URL, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketClient {
 	return &WebsocketClient{
 		keepAlive: keepAlive,
@@ -33,7 +34,14 @@ func NewWebSocketClient(u *url.URL, keepAlive bool, pingHdlr, pongHdlr func(stri
 	}
 }
 
+// WithMetaData associates the socket client with app-level metadata
+func (sc *WebsocketClient) WithMetaData(meta interface{}) *WebsocketClient {
+	sc.meta = meta
+	return sc
+}
+
 // TODO refactor connect to return the connection instead of just an error. Creating a connection as a side effect is a bad idea
+// Connect connects the websocket client to a server
 func (sc *WebsocketClient) Connect() error {
 	operation := func() error {
 		conn, _, err := websocket.DefaultDialer.Dial(sc.addr.String(), nil)
@@ -42,7 +50,7 @@ func (sc *WebsocketClient) Connect() error {
 			return err
 		}
 		// Connection established. Start Handshake
-		connectionID, err := sc.startClientHandshake(conn, "dummy metadata")
+		connectionID, err := sc.startClientHandshake(conn, sc.meta)
 		if err != nil {
 			// handle error and close the connection
 			panic(err)
@@ -55,8 +63,8 @@ func (sc *WebsocketClient) Connect() error {
 		sc.conn = c
 		sc.connMutex.Unlock()
 		// start the heartbeat protocol
-		if c.HeartBeat() != nil {
-			c.HeartBeat().start()
+		if c.heartBeat != nil {
+			c.heartBeat.start()
 		}
 		return nil
 	}

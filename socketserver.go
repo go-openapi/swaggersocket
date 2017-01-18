@@ -15,6 +15,28 @@ const (
 	handshakeTimeout = 60 * time.Second
 )
 
+type EvtType int
+
+const (
+	ConnectionReceived EvtType = iota
+	ConnectionClosed
+	ConnectionFailure
+)
+
+func (e EvtType) String() string {
+	if e == ConnectionReceived {
+		return "ConnectionReceived"
+	} else if e == ConnectionClosed {
+		return "ConnectionClosed"
+	}
+	return "ConnectionFailure"
+}
+
+type ConnectionEvent struct {
+	EventType    EvtType
+	ConnectionId string
+}
+
 type WebsocketServer struct {
 	upgrader           websocket.Upgrader
 	addr               string
@@ -28,14 +50,11 @@ type WebsocketServer struct {
 	handlerLoop        func()
 	isRestapiServer    bool
 	apiHdlr            http.Handler
-	connectionCh       chan *SocketConnection
+	eventStream        chan ConnectionEvent
+	hasSubscriber      atomicBool
 	register           chan *SocketConnection
 	unregister         chan *SocketConnection
-}
-
-type Envelope struct {
-	CorrelationID string
-	Payload       []byte
+	maxConn            int
 }
 
 func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketServer {
@@ -53,9 +72,45 @@ func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pong
 		connectionMetaData: make(map[string]interface{}),
 		register:           make(chan *SocketConnection),
 		unregister:         make(chan *SocketConnection),
+		maxConn:            maxConn,
+		eventStream:        make(chan ConnectionEvent),
 	}
-	srvr.Manage()
+	http.HandleFunc("/", srvr.websocketHandler)
+	go http.ListenAndServe(srvr.addr, nil)
 	return srvr
+}
+
+// MetaData reads the metadata for some connection
+func (ss *WebsocketServer) MetaData(cid string) interface{} {
+	ss.connMetaLock.Lock()
+	defer ss.connMetaLock.Unlock()
+	meta := ss.connectionMetaData[cid]
+	return meta
+}
+
+// ActiveConnections returns all the active connections that the server currently has
+func (ss *WebsocketServer) ActiveConnections() []*SocketConnection {
+	var connlist []*SocketConnection
+	ss.connMapLock.Lock()
+	for _, v := range ss.connectionMap {
+		connlist = append(connlist, v)
+	}
+	ss.connMapLock.Unlock()
+	return connlist
+}
+
+// ConnectionFromMetaData returns the connection associated with the metadata
+func (ss *WebsocketServer) ConnectionFromMetaData(meta interface{}) (*SocketConnection, error) {
+	ss.connMetaLock.Lock()
+	defer ss.connMetaLock.Unlock()
+	for k, v := range ss.connectionMetaData {
+		if v == meta {
+			ss.connMapLock.Lock()
+			defer ss.connMapLock.Unlock()
+			return ss.connectionMap[k], nil
+		}
+	}
+	return nil, errors.New("no connection found with the provided meta-data")
 }
 
 func (ss *WebsocketServer) activeConnectionCount() int {
@@ -65,43 +120,30 @@ func (ss *WebsocketServer) activeConnectionCount() int {
 	return size
 }
 
-func (ss *WebsocketServer) Manage() {
-	go ss.manage()
-}
-
-func (ss *WebsocketServer) manage() {
-	for {
-		select {
-		case conn := <-ss.register:
-			if conn != nil {
-				log.Printf("registering connection (id: %s) in the socketserver connection map", conn.id)
-				ss.connMapLock.Lock()
-				ss.connectionMap[conn.id] = conn
-				ss.connMapLock.Unlock()
-			}
-
-		case conn := <-ss.unregister:
-			if conn != nil {
-				log.Printf("unregistering connection (id: %s) in the socketserver connection map", conn.id)
-				ss.connMapLock.Lock()
-				delete(ss.connectionMap, conn.id)
-				ss.connMapLock.Unlock()
-				ss.connMetaLock.Lock()
-				delete(ss.connectionMetaData, conn.id)
-				ss.connMetaLock.Unlock()
-			}
-		}
-
-		// Add broadcast
+func (ss *WebsocketServer) registerConnection(conn *SocketConnection) {
+	if conn != nil {
+		log.Printf("registering connection (id: %s) in the socketserver connection map", conn.id)
+		ss.connMapLock.Lock()
+		ss.connectionMap[conn.id] = conn
+		ss.connMapLock.Unlock()
 	}
 }
 
-func (ss *WebsocketServer) Accept() (<-chan *SocketConnection, error) {
-	ch := make(chan *SocketConnection)
-	ss.connectionCh = ch
-	http.HandleFunc("/", ss.websocketHandler)
-	go http.ListenAndServe(ss.addr, nil)
-	return ch, nil
+func (ss *WebsocketServer) unregisterConnection(conn *SocketConnection) {
+	if conn != nil {
+		log.Printf("unregistering connection (id: %s) in the socketserver connection map", conn.id)
+		ss.connMapLock.Lock()
+		delete(ss.connectionMap, conn.id)
+		ss.connMapLock.Unlock()
+		ss.connMetaLock.Lock()
+		delete(ss.connectionMetaData, conn.id)
+		ss.connMetaLock.Unlock()
+	}
+}
+
+func (ss *WebsocketServer) EventStream() (<-chan ConnectionEvent, error) {
+	ss.hasSubscriber.setTrue()
+	return ss.eventStream, nil
 }
 
 func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Request) {
@@ -128,13 +170,19 @@ func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	conn := NewSocketConnection(c, connectionID, ss.keepAlive, ss.pingHdlr, ss.pongHdlr, ss.appData)
 	conn.setType(ServerSide)
 	conn.setSocketServer(ss)
-	ss.register <- conn
+	ss.registerConnection(conn)
 	// start heartbeat
 	if conn.heartBeat != nil {
 		log.Println("starting heartbeat")
 		conn.heartBeat.start()
 	}
-	ss.connectionCh <- conn
+	if ss.hasSubscriber.isSet() {
+		ss.eventStream <- ConnectionEvent{
+			EventType:    ConnectionReceived,
+			ConnectionId: conn.id,
+		}
+	}
+
 	log.Println("connection established")
 }
 
@@ -162,7 +210,7 @@ func (ss *WebsocketServer) startServerHandshake(c *websocket.Conn, connID string
 	return handshakeMeta.Meta, nil
 }
 
-func (ss *WebsocketServer) Connection(id string) *SocketConnection {
+func (ss *WebsocketServer) connectionFromConnID(id string) *SocketConnection {
 	ss.connMapLock.Lock()
 	c, ok := ss.connectionMap[id]
 	ss.connMapLock.Unlock()

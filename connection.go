@@ -37,6 +37,8 @@ const (
 	maxMessageSize = 512
 
 	closeWriteWait = 10 * time.Second
+
+	readResponseTimeout = 10 * time.Second
 )
 
 // SocketConnection is a wrapper around the websocket connection to handle http
@@ -51,6 +53,7 @@ type SocketConnection struct {
 	closeNotificationCh chan bool
 	closeHandlerCh      chan bool
 	once                sync.Once
+	hdlr                http.Handler
 }
 
 // NewSocketConnection creates a new socket connection
@@ -96,28 +99,36 @@ func (c *SocketConnection) setSocketClient(s *WebsocketClient) {
 	c.socketclient = s
 }
 
-func (c *SocketConnection) SocketServer() *WebsocketServer {
-	return c.socketserver
-}
-
-func (c *SocketConnection) SocketClient() *WebsocketClient {
-	return c.socketclient
-}
-
-func (c *SocketConnection) Type() ConnectionType {
-	return c.connType
-}
-
-func (c *SocketConnection) HeartBeat() *heartbeat {
-	return c.heartBeat
-}
-
 func (c *SocketConnection) handleFailure() {
-
-	c.cleanupConnection()
+	if c.closeHandlerCh != nil {
+		c.closeHandlerCh <- true
+	}
+	if c.closeNotificationCh != nil {
+		// this will block until the apiserver loop reads the value
+		c.once.Do(func() { c.closeNotificationCh <- true })
+	}
+	// stop the heartbeat protocol.
+	if c.heartBeat != nil {
+		c.heartBeat.stop()
+	}
+	if c.connType == ServerSide {
+		// remove this connection from the server connectionMap
+		c.socketserver.unregisterConnection(c)
+		if c.socketserver.hasSubscriber.isSet() {
+			c.socketserver.eventStream <- ConnectionEvent{
+				EventType:    ConnectionFailure,
+				ConnectionId: c.id,
+			}
+		}
+	}
+	c.conn.Close()
 	if c.connType == ClientSide {
 		// reconnect with exponential backoff
 		c.socketclient.Connect()
+		// reattach the handler
+		if c.hdlr != nil {
+			c.socketclient.conn.serve(context.Background(), c.hdlr)
+		}
 	}
 }
 
@@ -138,7 +149,13 @@ func (c *SocketConnection) cleanupConnection() {
 	}
 	if c.connType == ServerSide {
 		// remove this connection from the server connectionMap
-		c.socketserver.unregister <- c
+		c.socketserver.unregisterConnection(c)
+		if c.socketserver.hasSubscriber.isSet() {
+			c.socketserver.eventStream <- ConnectionEvent{
+				EventType:    ConnectionFailure,
+				ConnectionId: c.id,
+			}
+		}
 	}
 	c.conn.Close()
 }
@@ -160,7 +177,13 @@ func (c *SocketConnection) Close() error {
 
 	if c.connType == ServerSide {
 		// remove this connection from the server connectionMap
-		c.socketserver.unregister <- c
+		c.socketserver.unregisterConnection(c)
+		if c.socketserver.hasSubscriber.isSet() {
+			c.socketserver.eventStream <- ConnectionEvent{
+				EventType:    ConnectionClosed,
+				ConnectionId: c.id,
+			}
+		}
 	}
 	// some more stuff to do before closing the connection
 	// write a close control message to the peer so that the peer can cleanup the connection
@@ -265,17 +288,27 @@ func newResponseReader(c *SocketConnection) io.Reader {
 
 // ReadResponse reads a response from the underlying connection
 func (c *SocketConnection) ReadResponse() (*http.Response, error) {
+	// should add a timeout to readResponse
+	respCh := make(chan *http.Response)
+	defer close(respCh)
 	var err error
 	var resp *http.Response
-	if resp, err = http.ReadResponse(bufio.NewReader(newResponseReader(c)), nil); err == nil {
-		return resp, nil
+	go func() {
+		if resp, err = http.ReadResponse(bufio.NewReader(newResponseReader(c)), nil); err == nil {
+			respCh <- resp
+			return
+		}
+		log.Printf("read response: %v", err)
+		if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+			c.handleFailure()
+		}
+	}()
+	select {
+	case <-time.After(readResponseTimeout):
+		return nil, errors.New("time out")
+	case r := <-respCh:
+		return r, nil
 	}
-
-	log.Printf("error: %v", err)
-	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-		c.handleFailure()
-	}
-	return nil, err
 }
 
 func (c *SocketConnection) Serve(ctx context.Context, hdlr http.Handler) {
@@ -284,6 +317,7 @@ func (c *SocketConnection) Serve(ctx context.Context, hdlr http.Handler) {
 
 func (c *SocketConnection) serve(ctx context.Context, hdlr http.Handler) {
 	ctx, cancelCtx := context.WithCancel(ctx)
+	c.hdlr = hdlr
 	defer cancelCtx()
 	defer log.Println("exiting api-server loop")
 	c.closeNotificationCh = make(chan bool)
