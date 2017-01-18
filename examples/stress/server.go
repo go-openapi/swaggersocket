@@ -53,8 +53,9 @@ func main() {
 				if resp, err := c.ReadResponse(); err == nil {
 					b, _ := ioutil.ReadAll(resp.Body)
 					defer resp.Body.Close()
-					b = b
-					//log.Println(string(b))
+					if string(b) != cid || resp.Header.Get("X-Correlation-Id") != cid {
+						panic("error response recieved")
+					}
 				}
 			}
 		}

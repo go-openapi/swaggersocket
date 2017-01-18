@@ -43,11 +43,6 @@ func (hb *heartbeat) start() {
 			select {
 			// extra caution is required when both channels have values AT THE SAME TIME
 			case <-ticker.C:
-				// if hb.sockconn.connType == ServerSide {
-				// 	log.Printf("heartbeat: sending ping message at server side")
-				// } else {
-				// 	log.Printf("heartbeat: sending ping message at client side")
-				// }
 				// write a websocket ping control message. WriteControl is safe to use concurrently
 				if err := hb.sockconn.conn.WriteControl(websocket.PingMessage, hb.pingMsg, time.Now().Add(hb.pingWriteWait)); err != nil {
 					if err != websocket.ErrCloseSent {
