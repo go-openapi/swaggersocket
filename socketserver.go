@@ -141,6 +141,11 @@ func (ss *WebsocketServer) unregisterConnection(conn *SocketConnection) {
 	}
 }
 
+// ConnectionFromID returns the SocketConnection object from the connection-id
+func (ss *WebsocketServer) ConnectionFromID(id string) *SocketConnection {
+	return ss.connectionFromConnID(id)
+}
+
 func (ss *WebsocketServer) EventStream() (<-chan ConnectionEvent, error) {
 	ss.hasSubscriber.setTrue()
 	return ss.eventStream, nil
