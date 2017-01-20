@@ -201,6 +201,18 @@ func (c *SocketConnection) ID() string {
 	return c.id
 }
 
+// RoundTrip implements the http RoundTripper interface. Must be safe for concurrent use by multiple goroutines
+func (c *SocketConnection) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := c.WriteRequest(req); err != nil {
+		return nil, err
+	}
+	resp, err := c.ReadResponse()
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 // WriteRequest writes a request to the underlying connection
 func (c *SocketConnection) WriteRequest(req *http.Request) error {
 	var err error
