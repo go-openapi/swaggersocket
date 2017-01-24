@@ -75,8 +75,9 @@ func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pong
 		maxConn:            maxConn,
 		eventStream:        make(chan ConnectionEvent),
 	}
-	http.HandleFunc("/", srvr.websocketHandler)
-	go http.ListenAndServe(srvr.addr, nil)
+	serveMux := http.NewServeMux()
+	serveMux.HandleFunc("/", srvr.websocketHandler)
+	go http.ListenAndServe(srvr.addr, serveMux)
 	return srvr
 }
 
