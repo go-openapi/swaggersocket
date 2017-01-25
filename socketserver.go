@@ -101,17 +101,17 @@ func (ss *WebsocketServer) ActiveConnections() []*SocketConnection {
 }
 
 // ConnectionFromMetaData returns the connection associated with the metadata
-func (ss *WebsocketServer) ConnectionFromMetaData(meta interface{}) (*SocketConnection, error) {
+func (ss *WebsocketServer) ConnectionFromMetaData(meta interface{}) (string, error) {
 	ss.connMetaLock.Lock()
 	defer ss.connMetaLock.Unlock()
 	for k, v := range ss.connectionMetaData {
 		if v == meta {
 			ss.connMapLock.Lock()
 			defer ss.connMapLock.Unlock()
-			return ss.connectionMap[k], nil
+			return ss.connectionMap[k].id, nil
 		}
 	}
-	return nil, errors.New("no connection found with the provided meta-data")
+	return "", errors.New("no connection found with the provided meta-data")
 }
 
 func (ss *WebsocketServer) activeConnectionCount() int {

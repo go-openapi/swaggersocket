@@ -8,7 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"swaggersocket"
+
+	"github.com/casualjim/swaggersocket"
 )
 
 func echoHandler(rw http.ResponseWriter, req *http.Request) {

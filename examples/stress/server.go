@@ -5,7 +5,8 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"swaggersocket"
+
+	"github.com/casualjim/swaggersocket"
 
 	uuid "github.com/satori/go.uuid"
 )
@@ -36,7 +37,7 @@ func main() {
 			log.Printf("length of clientMap is %d", len(clientMap))
 			for _, clientID := range clientMap {
 				c, err := wsServer.ConnectionFromMetaData(clientID)
-				if c == nil {
+				if c == "" {
 					continue
 				}
 				if err != nil {
@@ -46,11 +47,11 @@ func main() {
 				cid := uuid.NewV4().String()
 				req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("ws://localhost:9090/echo/%s/", cid), nil)
 				req.Header.Set("X-Correlation-Id", cid)
-				if err := c.WriteRequest(req); err != nil {
+				if err := wsServer.ConnectionFromID(c).WriteRequest(req); err != nil {
 					log.Println(err)
 					continue
 				}
-				if resp, err := c.ReadResponse(); err == nil {
+				if resp, err := wsServer.ConnectionFromID(c).ReadResponse(); err == nil {
 					b, _ := ioutil.ReadAll(resp.Body)
 					defer resp.Body.Close()
 					if string(b) != cid || resp.Header.Get("X-Correlation-Id") != cid {
