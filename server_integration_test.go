@@ -2,7 +2,7 @@
 
 // These tests are integration tests for when the api-server is served by the websocket server
 
-package restwebsocket
+package swaggersocket
 
 import (
 	"bytes"

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"restwebsocket"
+	"swaggersocket"
 )
 
 func echoHandler(rw http.ResponseWriter, req *http.Request) {
@@ -19,7 +19,7 @@ func echoHandler(rw http.ResponseWriter, req *http.Request) {
 func main() {
 	u, _ := url.Parse("ws://localhost:9090/")
 	for i := 0; i < 30; i++ {
-		socketclient := restwebsocket.NewWebSocketClient(u, true, nil, nil, nil).WithMetaData(fmt.Sprintf("Client%d", i))
+		socketclient := swaggersocket.NewWebSocketClient(u, true, nil, nil, nil).WithMetaData(fmt.Sprintf("Client%d", i))
 		if err := socketclient.Connect(); err != nil {
 			panic(err)
 		}

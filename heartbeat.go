@@ -1,4 +1,4 @@
-package restwebsocket
+package swaggersocket
 
 import (
 	"log"

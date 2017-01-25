@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"restwebsocket"
+	"swaggersocket"
 
 	uuid "github.com/satori/go.uuid"
 )
@@ -16,7 +16,7 @@ var (
 )
 
 func main() {
-	wsServer := restwebsocket.NewWebSocketServer(":9090", 100, true, nil, nil, nil)
+	wsServer := swaggersocket.NewWebSocketServer(":9090", 100, true, nil, nil, nil)
 	ch, err := wsServer.EventStream()
 	clientMap = make(map[string]string)
 	if err != nil {
@@ -27,7 +27,7 @@ func main() {
 		case evt := <-ch:
 			log.Printf("connection event received: %s", evt.EventType.String())
 			cid := evt.ConnectionId
-			if evt.EventType == restwebsocket.ConnectionReceived {
+			if evt.EventType == swaggersocket.ConnectionReceived {
 				clientMap[cid] = wsServer.MetaData(cid).(string)
 			} else { // connection closed or connection failure
 				delete(clientMap, cid)
