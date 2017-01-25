@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"net"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -85,6 +87,11 @@ func NewSocketConnection(c *websocket.Conn, id string, keepAlive bool, pingHdlr,
 		return nil
 	})
 	return sockconn
+}
+
+// remoteAddr returns the remote address of the connection
+func (c *SocketConnection) remoteAddr() net.Addr {
+	return c.conn.UnderlyingConn().RemoteAddr()
 }
 
 func (c *SocketConnection) setType(t ConnectionType) {

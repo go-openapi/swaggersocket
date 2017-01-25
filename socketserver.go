@@ -57,6 +57,7 @@ type WebsocketServer struct {
 	maxConn            int
 }
 
+// NewWebSocketServer creates a new websocket server
 func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketServer {
 	srvr := &WebsocketServer{
 		upgrader: websocket.Upgrader{
@@ -79,6 +80,14 @@ func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pong
 	serveMux.HandleFunc("/", srvr.websocketHandler)
 	go http.ListenAndServe(srvr.addr, serveMux)
 	return srvr
+}
+
+// RemoteAddr returns the remote address
+func (ss *WebsocketServer) RemoteAddr(connID string) string {
+	if netAddr := ss.ConnectionFromID(connID).remoteAddr(); netAddr != nil {
+		return netAddr.String()
+	}
+	return ""
 }
 
 // MetaData reads the metadata for some connection
