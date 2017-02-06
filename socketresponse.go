@@ -74,7 +74,7 @@ func (w *response) WriteHeader(code int) {
 		if err == nil && v >= 0 {
 			w.contentLength = v
 		} else {
-			log.Printf("http: invalid Content-Length of %q", cl)
+			w.conn.log.Printf("http: invalid Content-Length of %q", cl)
 			w.handlerHeader.Del("Content-Length")
 		}
 	}
@@ -279,12 +279,12 @@ func (cw *chunkWriter) flush() {
 	}
 	err := cw.writer.Close()
 	if err != nil {
-		log.Println("cannot flush")
+		cw.res.conn.log.Println("cannot flush")
 		return
 	}
 	w, err := cw.res.conn.conn.NextWriter(websocket.TextMessage)
 	if err != nil {
-		log.Println("cannot write to the connection")
+		cw.res.conn.log.Println("cannot write to the connection")
 		return
 	}
 	cw.writer = w
@@ -295,7 +295,7 @@ func (cw *chunkWriter) finalflush() {
 		cw.writeHeader(nil)
 	}
 	if err := cw.writer.Close(); err != nil {
-		log.Printf("cannot flush")
+		cw.res.conn.log.Printf("cannot flush")
 	}
 	cw.writer = nil
 }
@@ -390,7 +390,7 @@ func (cw *chunkWriter) writeHeader(p []byte) {
 	}
 
 	if hasCL && hasTE && te != "identity" {
-		log.Printf("http: WriteHeader called with both Transfer-Encoding of %q and a Content-Length of %d",
+		cw.res.conn.log.Printf("http: WriteHeader called with both Transfer-Encoding of %q and a Content-Length of %d",
 			te, w.contentLength)
 		delHeader("Content-Length")
 		hasCL = false

@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"sync"
 
+	"os"
+
 	"github.com/cenkalti/backoff"
 	"github.com/gorilla/websocket"
 )
@@ -22,17 +24,34 @@ type WebsocketClient struct {
 	pongHdlr        func(string) error
 	appData         []byte
 	meta            interface{}
+	log             Logger
+}
+
+// SocketClientOpts is the options for a socket client
+type SocketClientOpts struct {
+	URL       *url.URL
+	KeepAlive bool
+	PingHdlr  func(string) error
+	PongHdlr  func(string) error
+	AppData   []byte
+	Logger    Logger
 }
 
 // NewWebSocketClient creates a new websocketcient
-func NewWebSocketClient(u *url.URL, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketClient {
-	return &WebsocketClient{
-		keepAlive: keepAlive,
-		pingHdlr:  pingHdlr,
-		pongHdlr:  pongHdlr,
-		appData:   appData,
-		addr:      u,
+func NewWebSocketClient(opts SocketClientOpts) *WebsocketClient {
+	cli := &WebsocketClient{
+		keepAlive: opts.KeepAlive,
+		pingHdlr:  opts.PingHdlr,
+		pongHdlr:  opts.PongHdlr,
+		appData:   opts.AppData,
+		addr:      opts.URL,
+		log:       opts.Logger,
 	}
+
+	if cli.log == nil {
+		cli.log = log.New(os.Stdout, "", 0)
+	}
+	return cli
 }
 
 // WithMetaData associates the socket client with app-level metadata
@@ -47,7 +66,7 @@ func (sc *WebsocketClient) Connect() error {
 	operation := func() error {
 		conn, _, err := websocket.DefaultDialer.Dial(sc.addr.String(), nil)
 		if err != nil {
-			log.Println("dial:", err)
+			sc.log.Println("dial:", err)
 			return err
 		}
 		// Connection established. Start Handshake
@@ -57,13 +76,14 @@ func (sc *WebsocketClient) Connect() error {
 			panic(err)
 		}
 
-		opts := ConnectionOpts{
+		opts := connectionOpts{
 			Conn:        conn,
 			ID:          connectionID,
 			KeepAlive:   sc.keepAlive,
 			PingHandler: sc.pingHdlr,
 			PongHandler: sc.pongHdlr,
 			AppData:     sc.appData,
+			Logger:      sc.log,
 		}
 
 		c := NewSocketConnection(opts)
@@ -81,7 +101,7 @@ func (sc *WebsocketClient) Connect() error {
 
 	err := backoff.Retry(operation, backoff.NewExponentialBackOff())
 	if err != nil {
-		log.Println("cannot initiate connection")
+		sc.log.Println("cannot initiate connection")
 		return err
 	}
 

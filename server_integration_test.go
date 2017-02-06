@@ -1,7 +1,6 @@
 // +build serverintegration
 
 // These tests are integration tests for when the api-server is served by the websocket server
-
 package swaggersocket
 
 import (
@@ -67,19 +66,21 @@ func closeNotifiedChunkedHandler(rw http.ResponseWriter, req *http.Request) {
 }
 
 func startSocketServer() (*WebsocketServer, chan struct{}) {
-	wsServer := NewWebSocketServer(":9090", 100, true, nil, nil, nil)
+	opts := SocketServerOpts{
+		Addr:      ":9090",
+		KeepAlive: true,
+	}
+	wsServer := NewWebSocketServer(opts)
 	ch, err := wsServer.EventStream()
 	if err != nil {
-		log.Println("event stream: ", err)
+		panic(err)
 	}
 	m := http.NewServeMux()
 	m.HandleFunc("/simple/", simpleHandler)
 	m.HandleFunc("/chunked/", chunkedHandler)
 	m.HandleFunc("/closenotifiedchunked/", closeNotifiedChunkedHandler)
 	done := make(chan struct{})
-	log.Println("socketserver waiting for connection")
 	go func() {
-		defer log.Printf("closing socketserver")
 		for {
 			select {
 			case event := <-ch:
@@ -99,7 +100,11 @@ func startSocketServer() (*WebsocketServer, chan struct{}) {
 func TestMain(m *testing.M) {
 	socketserver, done = startSocketServer()
 	u, _ := url.Parse("ws://localhost:9090/")
-	socketclient = NewWebSocketClient(u, true, nil, nil, nil)
+	opts := SocketClientOpts{
+		URL:       u,
+		KeepAlive: true,
+	}
+	socketclient = NewWebSocketClient(opts)
 	code := m.Run()
 	close(done)
 	os.Exit(code)

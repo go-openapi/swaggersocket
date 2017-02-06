@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -14,6 +13,13 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// Logger is the generic logger interface for in-app logging
+type Logger interface {
+	Print(...interface{})
+	Printf(string, ...interface{})
+	Println(...interface{})
+}
 
 // ConnectionType is the socket connection type, it can either be a serverside connection or a clientside connection
 type ConnectionType int
@@ -44,13 +50,14 @@ const (
 )
 
 // ConnectionOpts are the connection options
-type ConnectionOpts struct {
+type connectionOpts struct {
 	Conn        *websocket.Conn
 	ID          string
 	KeepAlive   bool
 	PingHandler func(string) error
 	PongHandler func(string) error
 	AppData     []byte
+	Logger      Logger
 }
 
 // SocketConnection is a wrapper around the websocket connection to handle http
@@ -66,10 +73,11 @@ type SocketConnection struct {
 	closeHandlerCh      chan bool
 	once                sync.Once
 	hdlr                http.Handler
+	log                 Logger
 }
 
 // NewSocketConnection creates a new socket connection
-func NewSocketConnection(opts ConnectionOpts) *SocketConnection {
+func NewSocketConnection(opts connectionOpts) *SocketConnection {
 	// Default ping handler is to send back a pong control message with the same application data
 	// Default pong handler is to do nothing
 	// websocket protocol mentions that the pong message should reply back with the exact appData recieved from the ping message
@@ -85,6 +93,7 @@ func NewSocketConnection(opts ConnectionOpts) *SocketConnection {
 		id:                  opts.ID,
 		closeNotificationCh: nil,
 		closeHandlerCh:      nil,
+		log:                 opts.Logger,
 	}
 
 	if opts.KeepAlive {
@@ -92,8 +101,8 @@ func NewSocketConnection(opts ConnectionOpts) *SocketConnection {
 		sockconn.heartBeat = newHeartBeat(sockconn, heartbeatPeriod, pingwriteWait, opts.AppData)
 	}
 	opts.Conn.SetCloseHandler(func(code int, text string) error {
-		log.Println("Close message recieved from peer")
-		log.Println("cleaning up connection resources")
+		sockconn.log.Println("Close message recieved from peer")
+		sockconn.log.Println("cleaning up connection resources")
 		sockconn.cleanupConnection()
 		return nil
 	})
@@ -153,7 +162,7 @@ func (c *SocketConnection) handleFailure() {
 // cleanup connection prepares for closing the connection. It acts as the close handler for the websocket connection
 func (c *SocketConnection) cleanupConnection() {
 	// the sequence of operations is very imprtant
-	defer log.Printf("cleaned up connection")
+	defer c.log.Printf("cleaned up connection")
 	if c.closeHandlerCh != nil {
 		c.closeHandlerCh <- true
 	}
@@ -208,7 +217,7 @@ func (c *SocketConnection) Close() error {
 	c.conn.WriteControl(websocket.CloseMessage, nil, time.Now().Add(closeWriteWait))
 	// close the underlying network connection
 	if err := c.conn.Close(); err != nil {
-		log.Printf("closing websocket connection: %v", err)
+		c.log.Printf("closing websocket connection: %v", err)
 		return err
 	}
 	return nil
@@ -244,7 +253,7 @@ func (c *SocketConnection) WriteRequest(req *http.Request) error {
 			return nil
 		}
 	}
-	log.Printf("error: %v", err)
+	c.log.Printf("error: %v", err)
 	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 		c.handleFailure()
 	}
@@ -300,7 +309,7 @@ func (rr *ResponseReader) Read(p []byte) (int, error) {
 	if count == 0 && err == io.EOF {
 		_, reader, err := rr.c.conn.NextReader()
 		if err != nil {
-			log.Printf("reading error: %v", err)
+			rr.c.log.Printf("reading error: %v", err)
 			return 0, err
 		}
 		rr.r = reader
@@ -328,7 +337,7 @@ func (c *SocketConnection) ReadResponse() (*http.Response, error) {
 			respCh <- resp
 			return
 		}
-		log.Printf("read response: %v", err)
+		c.log.Printf("read response: %v", err)
 		if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 			c.handleFailure()
 		}
@@ -349,7 +358,7 @@ func (c *SocketConnection) serve(ctx context.Context, hdlr http.Handler) {
 	ctx, cancelCtx := context.WithCancel(ctx)
 	c.hdlr = hdlr
 	defer cancelCtx()
-	defer log.Println("exiting api-server loop")
+	defer c.log.Println("exiting api-server loop")
 	c.closeNotificationCh = make(chan bool)
 	defer close(c.closeNotificationCh)
 	requestCh := make(chan *response)

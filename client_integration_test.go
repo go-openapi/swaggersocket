@@ -1,7 +1,6 @@
 // +build clientintegration
 
 // These tests are integration tests for when the api-server is served by the websocket client
-
 package swaggersocket
 
 import (
@@ -67,7 +66,11 @@ func closeNotifiedChunkedHandler(rw http.ResponseWriter, req *http.Request) {
 }
 
 func startSocketServer() (*WebsocketServer, chan struct{}) {
-	wsServer := NewWebSocketServer(":9090", 100, true, nil, nil, nil)
+	opts := SocketServerOpts{
+		Addr:      ":9090",
+		KeepAlive: true,
+	}
+	wsServer := NewWebSocketServer(opts)
 	ch, err := wsServer.EventStream()
 	if err != nil {
 		log.Println("accept: ", err)
@@ -101,7 +104,11 @@ func connectClient() {
 	mux.HandleFunc("/simple/", simpleHandler)
 	mux.HandleFunc("/chunked/", chunkedHandler)
 	mux.HandleFunc("/closenotifiedchunked/", closeNotifiedChunkedHandler)
-	socketclient = NewWebSocketClient(u, true, nil, nil, nil)
+	opts := SocketClientOpts{
+		URL:       u,
+		KeepAlive: true,
+	}
+	socketclient = NewWebSocketClient(opts)
 	if err := socketclient.Connect(); err != nil {
 		panic(err)
 	}

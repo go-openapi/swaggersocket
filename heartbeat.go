@@ -1,7 +1,6 @@
 package swaggersocket
 
 import (
-	"log"
 	"math/rand"
 	"time"
 
@@ -47,9 +46,9 @@ func (hb *heartbeat) start() {
 				if err := hb.sockconn.conn.WriteControl(websocket.PingMessage, hb.pingMsg, time.Now().Add(hb.pingWriteWait)); err != nil {
 					if err != websocket.ErrCloseSent {
 						if hb.sockconn.connType == ServerSide {
-							log.Printf("heartbeat: connection failure detected at socketserver side")
+							hb.sockconn.log.Printf("heartbeat: connection failure detected at socketserver side")
 						} else {
-							log.Printf("heartbeat: connection failure detected at socketclient side")
+							hb.sockconn.log.Printf("heartbeat: connection failure detected at socketclient side")
 						}
 
 						// this has to be its own goroutine
@@ -59,7 +58,7 @@ func (hb *heartbeat) start() {
 				}
 			case ch := <-hb.stopCh:
 				ch <- struct{}{}
-				log.Println("stopping heartbeat for connection")
+				hb.sockconn.log.Println("stopping heartbeat for connection")
 				return
 			}
 		}

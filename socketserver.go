@@ -2,10 +2,13 @@ package swaggersocket
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"sync"
 	"time"
+
+	"log"
+
+	"os"
 
 	"github.com/gorilla/websocket"
 	"github.com/satori/go.uuid"
@@ -54,27 +57,40 @@ type WebsocketServer struct {
 	hasSubscriber      atomicBool
 	register           chan *SocketConnection
 	unregister         chan *SocketConnection
-	maxConn            int
+	log                Logger
+}
+
+// SocketServerOpts is the options for creating a websocket server
+type SocketServerOpts struct {
+	Addr      string
+	KeepAlive bool
+	PingHdlr  func(string) error
+	PongHdlr  func(string) error
+	AppData   []byte
+	Log       Logger
 }
 
 // NewWebSocketServer creates a new websocket server
-func NewWebSocketServer(addr string, maxConn int, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *WebsocketServer {
+func NewWebSocketServer(opts SocketServerOpts) *WebsocketServer {
 	srvr := &WebsocketServer{
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 		},
-		addr:               addr,
-		keepAlive:          keepAlive,
-		pingHdlr:           pingHdlr,
-		pongHdlr:           pongHdlr,
-		appData:            appData,
+		addr:               opts.Addr,
+		keepAlive:          opts.KeepAlive,
+		pingHdlr:           opts.PingHdlr,
+		pongHdlr:           opts.PongHdlr,
+		appData:            opts.AppData,
 		connectionMap:      make(map[string]*SocketConnection),
 		connectionMetaData: make(map[string]interface{}),
 		register:           make(chan *SocketConnection),
 		unregister:         make(chan *SocketConnection),
-		maxConn:            maxConn,
 		eventStream:        make(chan ConnectionEvent),
+		log:                opts.Log,
+	}
+	if srvr.log == nil {
+		srvr.log = log.New(os.Stdout, "", 0)
 	}
 	serveMux := http.NewServeMux()
 	serveMux.HandleFunc("/", srvr.websocketHandler)
@@ -132,7 +148,7 @@ func (ss *WebsocketServer) activeConnectionCount() int {
 
 func (ss *WebsocketServer) registerConnection(conn *SocketConnection) {
 	if conn != nil {
-		log.Printf("registering connection (id: %s) in the socketserver connection map", conn.id)
+		ss.log.Printf("registering connection (id: %s) in the socketserver connection map", conn.id)
 		ss.connMapLock.Lock()
 		ss.connectionMap[conn.id] = conn
 		ss.connMapLock.Unlock()
@@ -141,7 +157,7 @@ func (ss *WebsocketServer) registerConnection(conn *SocketConnection) {
 
 func (ss *WebsocketServer) unregisterConnection(conn *SocketConnection) {
 	if conn != nil {
-		log.Printf("unregistering connection (id: %s) in the socketserver connection map", conn.id)
+		ss.log.Printf("unregistering connection (id: %s) in the socketserver connection map", conn.id)
 		ss.connMapLock.Lock()
 		delete(ss.connectionMap, conn.id)
 		ss.connMapLock.Unlock()
@@ -163,10 +179,10 @@ func (ss *WebsocketServer) EventStream() (<-chan ConnectionEvent, error) {
 }
 
 func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("connection request received")
+	ss.log.Println("connection request received")
 	c, err := ss.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Print("upgrade:", err)
+		ss.log.Print("upgrade:", err)
 		return
 	}
 	// generate a unique connection-id for this connection
@@ -183,13 +199,14 @@ func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	ss.connMetaLock.Lock()
 	ss.connectionMetaData[connectionID] = clientMetaData
 	ss.connMetaLock.Unlock()
-	opts := ConnectionOpts{
+	opts := connectionOpts{
 		Conn:        c,
 		ID:          connectionID,
 		KeepAlive:   ss.keepAlive,
 		PingHandler: ss.pingHdlr,
 		PongHandler: ss.pongHdlr,
 		AppData:     ss.appData,
+		Logger:      ss.log,
 	}
 
 	conn := NewSocketConnection(opts)
@@ -198,7 +215,7 @@ func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	ss.registerConnection(conn)
 	// start heartbeat
 	if conn.heartBeat != nil {
-		log.Println("starting heartbeat")
+		ss.log.Println("starting heartbeat")
 		conn.heartBeat.start()
 	}
 	if ss.hasSubscriber.isSet() {
@@ -208,7 +225,7 @@ func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	log.Println("connection established")
+	ss.log.Println("connection established")
 }
 
 func (ss *WebsocketServer) startServerHandshake(c *websocket.Conn, connID string) (interface{}, error) {
