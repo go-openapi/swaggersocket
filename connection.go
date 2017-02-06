@@ -43,6 +43,16 @@ const (
 	readResponseTimeout = 10 * time.Second
 )
 
+// ConnectionOpts are the connection options
+type ConnectionOpts struct {
+	Conn        *websocket.Conn
+	ID          string
+	KeepAlive   bool
+	PingHandler func(string) error
+	PongHandler func(string) error
+	AppData     []byte
+}
+
 // SocketConnection is a wrapper around the websocket connection to handle http
 type SocketConnection struct {
 	socketserver *WebsocketServer
@@ -59,28 +69,29 @@ type SocketConnection struct {
 }
 
 // NewSocketConnection creates a new socket connection
-func NewSocketConnection(c *websocket.Conn, id string, keepAlive bool, pingHdlr, pongHdlr func(string) error, appData []byte) *SocketConnection {
+func NewSocketConnection(opts ConnectionOpts) *SocketConnection {
 	// Default ping handler is to send back a pong control message with the same application data
 	// Default pong handler is to do nothing
 	// websocket protocol mentions that the pong message should reply back with the exact appData recieved from the ping message
-	if pingHdlr != nil {
-		c.SetPingHandler(pingHdlr)
+	if opts.PingHandler != nil {
+		opts.Conn.SetPingHandler(opts.PingHandler)
 	}
-	if pongHdlr != nil {
-		c.SetPongHandler(pingHdlr)
+	if opts.PongHandler != nil {
+		opts.Conn.SetPongHandler(opts.PongHandler)
 	}
 
 	sockconn := &SocketConnection{
-		conn:                c,
-		id:                  id,
+		conn:                opts.Conn,
+		id:                  opts.ID,
 		closeNotificationCh: nil,
 		closeHandlerCh:      nil,
 	}
-	if keepAlive {
+
+	if opts.KeepAlive {
 		// create a new heartbeat object
-		sockconn.heartBeat = newHeartBeat(sockconn, heartbeatPeriod, pingwriteWait, appData)
+		sockconn.heartBeat = newHeartBeat(sockconn, heartbeatPeriod, pingwriteWait, opts.AppData)
 	}
-	c.SetCloseHandler(func(code int, text string) error {
+	opts.Conn.SetCloseHandler(func(code int, text string) error {
 		log.Println("Close message recieved from peer")
 		log.Println("cleaning up connection resources")
 		sockconn.cleanupConnection()

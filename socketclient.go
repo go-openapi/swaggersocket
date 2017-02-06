@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// WebsocketClient is the websockets client
 type WebsocketClient struct {
 	connMutex       sync.Mutex
 	conn            *SocketConnection
@@ -56,7 +57,16 @@ func (sc *WebsocketClient) Connect() error {
 			panic(err)
 		}
 
-		c := NewSocketConnection(conn, connectionID, sc.keepAlive, sc.pingHdlr, sc.pongHdlr, sc.appData)
+		opts := ConnectionOpts{
+			Conn:        conn,
+			ID:          connectionID,
+			KeepAlive:   sc.keepAlive,
+			PingHandler: sc.pingHdlr,
+			PongHandler: sc.pongHdlr,
+			AppData:     sc.appData,
+		}
+
+		c := NewSocketConnection(opts)
 		c.setSocketClient(sc)
 		c.setType(ClientSide)
 		sc.connMutex.Lock()
@@ -101,6 +111,7 @@ func (sc *WebsocketClient) startClientHandshake(c *websocket.Conn, meta interfac
 	return connID, nil
 }
 
+// Connection returns the socketConnection object
 func (sc *WebsocketClient) Connection() *SocketConnection {
 	sc.connMutex.Lock()
 	c := sc.conn

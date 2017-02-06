@@ -156,6 +156,7 @@ func (ss *WebsocketServer) ConnectionFromID(id string) *SocketConnection {
 	return ss.connectionFromConnID(id)
 }
 
+// EventStream is the socket server's event stream
 func (ss *WebsocketServer) EventStream() (<-chan ConnectionEvent, error) {
 	ss.hasSubscriber.setTrue()
 	return ss.eventStream, nil
@@ -182,7 +183,16 @@ func (ss *WebsocketServer) websocketHandler(w http.ResponseWriter, r *http.Reque
 	ss.connMetaLock.Lock()
 	ss.connectionMetaData[connectionID] = clientMetaData
 	ss.connMetaLock.Unlock()
-	conn := NewSocketConnection(c, connectionID, ss.keepAlive, ss.pingHdlr, ss.pongHdlr, ss.appData)
+	opts := ConnectionOpts{
+		Conn:        c,
+		ID:          connectionID,
+		KeepAlive:   ss.keepAlive,
+		PingHandler: ss.pingHdlr,
+		PongHandler: ss.pongHdlr,
+		AppData:     ss.appData,
+	}
+
+	conn := NewSocketConnection(opts)
 	conn.setType(ServerSide)
 	conn.setSocketServer(ss)
 	ss.registerConnection(conn)
