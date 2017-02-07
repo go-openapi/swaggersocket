@@ -21,6 +21,30 @@ type Logger interface {
 	Println(...interface{})
 }
 
+type concurrentWriter struct {
+	writer io.WriteCloser
+	wmutex *sync.Mutex
+}
+
+func (cw *concurrentWriter) Write(p []byte) (int, error) {
+	cw.wmutex.Lock()
+	defer cw.wmutex.Unlock()
+	return cw.writer.Write(p)
+}
+
+func (cw *concurrentWriter) Close() error {
+	cw.wmutex.Lock()
+	defer cw.wmutex.Unlock()
+	return cw.writer.Close()
+}
+
+func newConcurrentWriter(writer io.WriteCloser, mutex *sync.Mutex) io.WriteCloser {
+	return &concurrentWriter{
+		writer: writer,
+		wmutex: mutex,
+	}
+}
+
 // ConnectionType is the socket connection type, it can either be a serverside connection or a clientside connection
 type ConnectionType int
 
@@ -74,6 +98,7 @@ type SocketConnection struct {
 	once                sync.Once
 	hdlr                http.Handler
 	log                 Logger
+	wmutex              *sync.Mutex
 }
 
 // NewSocketConnection creates a new socket connection
@@ -94,6 +119,7 @@ func NewSocketConnection(opts connectionOpts) *SocketConnection {
 		closeNotificationCh: nil,
 		closeHandlerCh:      nil,
 		log:                 opts.Logger,
+		wmutex:              &sync.Mutex{},
 	}
 
 	if opts.KeepAlive {
@@ -107,6 +133,16 @@ func NewSocketConnection(opts connectionOpts) *SocketConnection {
 		return nil
 	})
 	return sockconn
+}
+
+func (c *SocketConnection) nextWriter(msgType int) (io.WriteCloser, error) {
+	c.wmutex.Lock()
+	defer c.wmutex.Unlock()
+	wrtr, err := c.conn.NextWriter(msgType)
+	if err != nil {
+		return nil, err
+	}
+	return newConcurrentWriter(wrtr, c.wmutex), nil
 }
 
 // remoteAddr returns the remote address of the connection
@@ -247,7 +283,7 @@ func (c *SocketConnection) WriteRequest(req *http.Request) error {
 	if req.Header.Get("X-Correlation-Id") == "" {
 		return errors.New("X-Correlation-Id header must be present")
 	}
-	if w, err = c.conn.NextWriter(websocket.TextMessage); err == nil {
+	if w, err = c.nextWriter(websocket.TextMessage); err == nil {
 		defer w.Close()
 		if err = req.Write(w); err == nil {
 			return nil
@@ -278,10 +314,8 @@ func (c *SocketConnection) readRequest(ctx context.Context) (*response, error) {
 				contentLength: -1,
 			}
 			w.cw.res = w
-			bufw, err := c.conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				// handle failure
-			}
+			bufw, _ := c.nextWriter(websocket.TextMessage)
+
 			w.cw.writer = bufw
 			w.w = newBufioWriterSize(&w.cw, bufferBeforeChunkingSize)
 			return w, nil
@@ -373,9 +407,11 @@ func (c *SocketConnection) serve(ctx context.Context, hdlr http.Handler) {
 				return
 			case resp := <-requestCh:
 				// you can listen to the closenotification channel inside the handler because the response writer implements the closeNotfiy interface. This is useful for long running handlers such as log --follow
-				hdlr.ServeHTTP(resp, resp.req)
-				resp.cancelCtx()
-				resp.finishRequest()
+				go func() {
+					hdlr.ServeHTTP(resp, resp.req)
+					resp.cancelCtx()
+					resp.finishRequest()
+				}()
 				requestCh <- nil
 			}
 		}
@@ -385,6 +421,7 @@ func (c *SocketConnection) serve(ctx context.Context, hdlr http.Handler) {
 		for {
 			resp, err := c.readRequest(ctx)
 			if err != nil {
+				c.log.Println(err)
 				return
 			}
 			requestCh <- resp

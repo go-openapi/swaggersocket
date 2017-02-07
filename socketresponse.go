@@ -282,7 +282,7 @@ func (cw *chunkWriter) flush() {
 		cw.res.conn.log.Println("cannot flush")
 		return
 	}
-	w, err := cw.res.conn.conn.NextWriter(websocket.TextMessage)
+	w, err := cw.res.conn.nextWriter(websocket.TextMessage)
 	if err != nil {
 		cw.res.conn.log.Println("cannot write to the connection")
 		return
