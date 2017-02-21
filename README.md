@@ -5,7 +5,7 @@ ReST over websocket, so you can serve swagger apis over websocket
 ### How to create a websocket server
 A websocket server can be created using the `NewWebSocketServer` function
 ```go
-func NewWebSocketServer(opts SocketServerOpts) *WebsocketServer 
+func NewWebSocketServer(opts SocketServerOpts) *WebsocketServer
 ```
  The above function creates a websocket server based on the options structure passed to the constructor function
 
@@ -94,7 +94,54 @@ If the api server is attached to the websocket client, the websocket server will
 After a connection has been established between the websocket server and the websocket client, the api server can be attached to any by hooking up the swagger api handler.
 
 ### Attaching the swagger api handler to the websocket server
+```go
+wsServer := NewWebSocketServer(opts)
+ch, err := wsServer.EventStream()
+// the following loop is safe to run in a separate go-routine
+for {
+			select {
+			case event := <-ch:
+				if event.EventType == ConnectionReceived {
+					conn := wsServer.connectionFromConnID(event.ConnectionId)
+					conn.Serve(context.Background(), SwaggerAPIHandler)
+				}
 
-### Attaching the swagger api handler to the websocket client 
-
+			case <-done:
+				return
+			}
+}
+```
+### Attaching the swagger api handler to the websocket client
+```go
+// create a websocket client
+wsClient := swaggersocket.NewWebSocketClient(clientOpts).WithMetaData("dummy connection metadata")
+// connect to the websocket server
+if err := wsClient.Connect(); err != nil {
+		panic(err)
+}
+///////////////////
+// some code goes here
+//////////////////
+// serve the swagger api on the websocket client
+wsClient.Connection().Serve(context.Background(), SwaggerAPIHandler)
+```
 ## Swagger API Client
+`SocketConnection` implements the RoundTripper interface. This means that the swagger client requires no modifications except for changing the RoundTripper of the runtime
+
+For example, assuming that we are hooking the swagger client to the websocket client:
+
+```go
+// create a websocket client
+wsClient := swaggersocket.NewWebSocketClient(clientOpts).WithMetaData("dummy connection metadata")
+// connect to the websocket server
+if err := wsClient.Connect(); err != nil {
+		panic(err)
+}
+///////////////////
+// some code goes here
+//////////////////
+// serve the swagger api on the websocket client
+rt := runtime.New("localhost", "/", []string{"https"})
+rt.Transport = wsClient.Connection()
+cli := client.New(rt, nil)
+```
