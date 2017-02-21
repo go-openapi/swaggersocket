@@ -50,4 +50,43 @@ There are three types of connection events:
 
 The `ConnectionEvent` also has the `ConnectionId` field which is the ID of the connection associated with the event.
 
-## How to create a websocket client
+## Websocket Client
+A websocket client can be created using the `NewWebSocketServer` function
+```go
+func NewWebSocketClient(opts SocketClientOpts) *WebsocketClient
+```
+ This creates a websocket client based on the `SocketClientOpts`
+
+ ```go
+ type SocketClientOpts struct {
+	URL       *url.URL
+	KeepAlive bool
+	PingHdlr  func(string) error
+	PongHdlr  func(string) error
+	AppData   []byte
+	Logger    Logger
+}
+```
+
+The `URL` is the url of the websocket server
+A `KeepAlive` set to true will activate the heartbeat mechanism from the client side and on connection failure, will attempt to reconnect to the websocket server with an exponential backoff.
+
+## Server-Client Handshake
+This is a three-way handshake in the beginning of the connection. The purpose of this handshake is:
+
+- agree on a unique id `ConnectionId` for the connection
+- allowing the websocket client to store some connection metadata at the websocket server side
+
+In particular, this is the sequence of events:
+
+1. The websocket Client sends an initial message to the websocket server with the connection metadata (if any)
+2. The websocket server stores the metadata for the connection and responds with a unique connection id
+3. The client confirms the reception of the connection id
+
+## The Heartbeat
+The Heartbeat is the mechanism by which connection failures can be detected. The Heartbeat simply utilizes the underlying websocket ping/pong messages to send periodic heartbeat messages to check the health of the connection. Heartbeat messages can be activated at the websocket client and/or server sides by setting the `KeepAlive` field.
+
+## Swagger API Server
+
+
+## Swagger API Client
