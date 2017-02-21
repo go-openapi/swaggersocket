@@ -87,6 +87,14 @@ In particular, this is the sequence of events:
 The Heartbeat is the mechanism by which connection failures can be detected. The Heartbeat simply utilizes the underlying websocket ping/pong messages to send periodic heartbeat messages to check the health of the connection. Heartbeat messages can be activated at the websocket client and/or server sides by setting the `KeepAlive` field.
 
 ## Swagger API Server
+Websocket connections are bidirectional. This means the API server can be attached to either the websocket client or the websocket server.
 
+If the api server is attached to the websocket client, the websocket server will act as the api client (issue requests to the websocket client and receive ap response)
+
+After a connection has been established between the websocket server and the websocket client, the api server can be attached to any by hooking up the swagger api handler.
+
+### Attaching the swagger api handler to the websocket server
+
+### Attaching the swagger api handler to the websocket client 
 
 ## Swagger API Client
