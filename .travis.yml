@@ -9,7 +9,10 @@ install:
 - go get -u github.com/cenkalti/backoff
 - go get -u github.com/mailru/easyjson
 script:
-- go test -v -race -cover -coverprofile=coverage.txt -covermode=atomic ./...
+- go test -race -v -tags clientintegration -covermode="atomic" -coverprofile="clientintegration.cover"
+- go test -race -v -tags serverintegration -covermode="atomic" -coverprofile="serverintegration.cover"
+- echo "mode: atomic" > coverage.txt
+- grep -h -v "^mode:" ./*.cover >> coverage.txt
 after_success:
 - bash <(curl -s https://codecov.io/bash)
 notifications:
