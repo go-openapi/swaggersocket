@@ -1,0 +1,17 @@
+language: go
+go:
+- 1.7
+- 1.8
+install:
+- go get -u github.com/gorilla/websocket
+- go get -u github.com/stretchr/testify
+- go get -u github.com/satori/go.uuid
+- go get -u github.com/cenkalti/backoff
+- go get -u github.com/mailru/easyjson
+script:
+- go test -v -race -cover -coverprofile=coverage.txt -covermode=atomic ./...
+after_success:
+- bash <(curl -s https://codecov.io/bash)
+notifications:
+  slack:
+    secure: rsxiZNwk42wAmn8RQFIuLOu7l0lIJmgtDVmEI1QZgXR7flDJbDk0kfe2pCoJq2atYWXp+7ARZKqEmuCMPteswQ8vbXwjuPtrne0qF8WGGLskkgE56NpGsGPT1LjcABx8jCUedlHgAk6z1mpb9ltF1sI8jBxa/JnpaczCWhQ6G7yN7PyyajbhD5ATO/NJFAhJ/IkyIXKDd4amqXAr5Smw9Xsa3Um+gQtyFa5sRzprc0WWxDBeAaSOXaSQ6LXE1zZr6vwGb1PBCXbGPd4q9hKhaBBJxmVJKGHZ1goUB7YJbaFxXS05yhuXboKD4YZRDJ85WnZowzV6tU+EDOiBB4ZoYrZmQsxp3P4ccwHNhEa1jGblDIXvJgy5besg7qxL79qwc+Iaq5j9H1pMSC2218s+7/qXz7jb2Ql9HT8UuyCK9qPvt1X5IZEP41tndMIXbHiSNO4eAMGwmwCQ8J/AFOrtPymvbT0Stt5HireA96q5A8D/E99zAMOIC53g9BaDpzU6ooS+esLZVC7AW70AQqSOMY4VggW5mfpBZPTAa0EZ8XEXInyDRl+qFgELOZtGGi7atTgoSM0tz3XH8z4vBehCUVU6oc0TA9BgRu+pvR+HPDf6lcf+1T/kvVu0GM+a/7Xarvmy5M/nu4UmrsRxUko7LuB+Ld3QtJx2UHvcx9yst8U=
