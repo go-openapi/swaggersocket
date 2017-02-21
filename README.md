@@ -27,7 +27,7 @@ func NewWebSocketServer(opts SocketServerOpts) *WebsocketServer
 `AppData` optional application-level data passed with the heartbeat messages
 `Log` custom logger
 
-### The Websocket server Event Stream
+### The Websocket Server Event Stream
 After creating a websocket server, the user will probably need to listen the events happening on the websocket server.
 
 To listen to the event stream of the websocket server
@@ -93,7 +93,7 @@ If the api server is attached to the websocket client, the websocket server will
 
 After a connection has been established between the websocket server and the websocket client, the api server can be attached to any by hooking up the swagger api handler.
 
-### Attaching the swagger api handler to the websocket server
+### Attaching the Swagger API handler to the websocket server
 ```go
 wsServer := NewWebSocketServer(opts)
 ch, err := wsServer.EventStream()
@@ -140,8 +140,9 @@ if err := wsClient.Connect(); err != nil {
 ///////////////////
 // some code goes here
 //////////////////
-// serve the swagger api on the websocket client
+// runtime is the go-openapi runtime
 rt := runtime.New("localhost", "/", []string{"https"})
 rt.Transport = wsClient.Connection()
+// client is the swagger http client
 cli := client.New(rt, nil)
 ```
