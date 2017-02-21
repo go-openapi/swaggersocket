@@ -1,7 +1,11 @@
-# swaggersocket
+# SwaggerSocket [![Build Status](https://travis-ci.org/go-openapi/swaggersocket.svg?branch=master)](https://travis-ci.org/go-openapi/swaggersocket) [![codecov](https://codecov.io/gh/go-openapi/swaggersocket/branch/master/graph/badge.svg)](https://codecov.io/gh/go-openapi/swaggersocket) [![Slack Status](https://slackin.goswagger.io/badge.svg)](https://slackin.goswagger.io)
+
+[![license](http://img.shields.io/badge/license-Apache%20v2-orange.svg)](https://raw.githubusercontent.com/go-openapi/swaggersocket/master/LICENSE) [![GoDoc](https://godoc.org/github.com/go-openapi/swaggersocket?status.svg)](http://godoc.org/github.com/go-openapi/swaggersocket)
+
 ReST over websocket, so you can serve swagger apis over websocket
 
 ## Websocket Server
+
 ### How to create a websocket server
 A websocket server can be created using the `NewWebSocketServer` function
 ```go
